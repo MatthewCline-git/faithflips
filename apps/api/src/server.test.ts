@@ -198,6 +198,7 @@ function createTestTranscription(): TranscriptionProvider {
 }
 
 function createTestRenderer(): VideoRenderer {
+  const base = "http://127.0.0.1:4001/assets/renders";
   return {
     render(input) {
       return Promise.resolve(
@@ -205,10 +206,18 @@ function createTestRenderer(): VideoRenderer {
           clipCandidateId: input.candidate.id,
           format: "mp4",
           aspectRatio: "9:16",
-          videoUrl: `http://127.0.0.1:4001/assets/renders/${input.candidate.sermonId}/${input.candidate.id}.mp4`,
-          thumbnailUrl: `http://127.0.0.1:4001/assets/renders/${input.candidate.sermonId}/${input.candidate.id}.jpg`,
+          cropVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-crop.mp4`,
+          blurVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-blur.mp4`,
+          thumbnailUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}.jpg`,
           subtitleStyle: "bold-readable",
           renderStatus: "completed"
+        })
+      );
+    },
+    stitch(input) {
+      return Promise.resolve(
+        ok({
+          finalVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-final.mp4`
         })
       );
     }
@@ -234,7 +243,8 @@ function createTestClipSelection(): ClipSelectionModelProvider {
               postCaption: "Test caption",
               confidence: 0.8,
               promptVersion: input.prompt.version,
-              model: "test-selector"
+              model: "test-selector",
+              blurPadSpans: []
             }))
           },
           metadata: {

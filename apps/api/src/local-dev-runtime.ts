@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { err, ok, type Result, type Transcript } from "@faithflips/core";
@@ -197,6 +198,9 @@ export function createLocalStorageClient(input: {
 }
 
 export function createLocalRenderWorkspace(input: { readonly workDir: string }): RenderWorkspace {
+  // Ensure the work directory exists so ffmpeg can write rendered outputs even on a
+  // fresh/cleared data volume (createPath returns a path inside it without creating it).
+  mkdirSync(input.workDir, { recursive: true });
   return {
     createPath(pathInput) {
       return join(input.workDir, `${pathInput.clipCandidateId}.${pathInput.extension}`);

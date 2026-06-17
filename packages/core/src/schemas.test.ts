@@ -41,3 +41,55 @@ describe("timestamp validation", () => {
     ).toThrow();
   });
 });
+
+describe("clip candidate blur-pad spans", () => {
+  const baseClip = {
+    id: "clip_1",
+    sermonId: "sermon_1",
+    startSeconds: 10,
+    endSeconds: 40,
+    title: "Quote",
+    hook: "A strong hook",
+    rationale: "Good short-form fit",
+    postCaption: "A caption",
+    confidence: 0.9,
+    promptVersion: "v1",
+    model: "fake"
+  };
+
+  it("defaults blurPadSpans to an empty list", () => {
+    expect(clipCandidateSchema.parse(baseClip).blurPadSpans).toEqual([]);
+  });
+
+  it("accepts sorted, non-overlapping spans", () => {
+    const clip = clipCandidateSchema.parse({
+      ...baseClip,
+      blurPadSpans: [
+        { startSeconds: 0, endSeconds: 5 },
+        { startSeconds: 8, endSeconds: 12 }
+      ]
+    });
+    expect(clip.blurPadSpans).toHaveLength(2);
+  });
+
+  it("rejects overlapping spans", () => {
+    expect(() =>
+      clipCandidateSchema.parse({
+        ...baseClip,
+        blurPadSpans: [
+          { startSeconds: 0, endSeconds: 6 },
+          { startSeconds: 5, endSeconds: 12 }
+        ]
+      })
+    ).toThrow();
+  });
+
+  it("rejects a span that ends before it starts", () => {
+    expect(() =>
+      clipCandidateSchema.parse({
+        ...baseClip,
+        blurPadSpans: [{ startSeconds: 8, endSeconds: 4 }]
+      })
+    ).toThrow();
+  });
+});

@@ -44,6 +44,35 @@ export const transcriptSchema = z.object({
 
 export type Transcript = z.infer<typeof transcriptSchema>;
 
+/**
+ * A span of a clip, in clip-relative seconds (t=0 at the clip start), that should be
+ * rendered in blur-pad mode instead of the default close-up crop. Time outside every
+ * span is rendered crop-fill.
+ */
+export const blurPadSpanSchema = z
+  .object({
+    startSeconds: z.number().nonnegative(),
+    endSeconds: z.number().positive()
+  })
+  .refine((span) => span.endSeconds > span.startSeconds, {
+    message: "Blur-pad span must end after it starts",
+    path: ["endSeconds"]
+  });
+
+export type BlurPadSpan = z.infer<typeof blurPadSpanSchema>;
+
+const blurPadSpansSchema = z
+  .array(blurPadSpanSchema)
+  .default([])
+  .refine(
+    (spans) =>
+      spans.every((span, index) => {
+        const previous = spans[index - 1];
+        return previous === undefined || span.startSeconds >= previous.endSeconds;
+      }),
+    { message: "Blur-pad spans must be sorted and non-overlapping" }
+  );
+
 export const clipCandidateSchema = z
   .object({
     id: z.string().min(1),
@@ -58,7 +87,8 @@ export const clipCandidateSchema = z
     lastWords: z.string().optional(),
     confidence: z.number().min(0).max(1),
     promptVersion: z.string().min(1),
-    model: z.string().min(1)
+    model: z.string().min(1),
+    blurPadSpans: blurPadSpansSchema
   })
   .refine((clip) => clip.endSeconds > clip.startSeconds, {
     message: "Clip candidate must end after it starts",
@@ -71,7 +101,11 @@ export const renderedClipSchema = z.object({
   clipCandidateId: z.string().min(1),
   format: z.literal("mp4"),
   aspectRatio: z.literal("9:16"),
-  videoUrl: z.url(),
+  // Both full-length variants are rendered up front so the editor can preview either
+  // instantly. finalVideoUrl is the stitched result, set on download for mixed plans.
+  cropVideoUrl: z.url(),
+  blurVideoUrl: z.url(),
+  finalVideoUrl: z.url().optional(),
   thumbnailUrl: z.url(),
   subtitleStyle: z.string().min(1),
   renderStatus: z.enum(["completed", "failed"])

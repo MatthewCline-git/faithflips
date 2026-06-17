@@ -29,7 +29,7 @@ const openAiClipSchema = z.object({
 });
 
 const openAiOutputSchema = z.object({
-  clips: z.array(openAiClipSchema).min(1).max(3)
+  clips: z.array(openAiClipSchema).min(1).max(6)
 });
 
 export function createOpenAiClipSelectionProvider(input: {
@@ -89,7 +89,7 @@ export function createOpenAiClipSelectionProvider(input: {
             model,
             input: prompt,
             temperature: 0.4,
-            max_output_tokens: 2500,
+            max_output_tokens: 5000,
             text: {
               format: {
                 type: "json_schema",
@@ -103,7 +103,7 @@ export function createOpenAiClipSelectionProvider(input: {
                     clips: {
                       type: "array",
                       minItems: 1,
-                      maxItems: 3,
+                      maxItems: 6,
                       items: {
                         type: "object",
                         additionalProperties: false,
@@ -120,7 +120,11 @@ export function createOpenAiClipSelectionProvider(input: {
                           "confidence"
                         ],
                         properties: {
-                          reasoning: { type: "string", description: "Your analysis: why this moment is viral, what emotion it triggers, why the timestamps are precise" },
+                          reasoning: {
+                            type: "string",
+                            description:
+                              "Your analysis: why this moment is viral, what emotion it triggers, why the timestamps are precise"
+                          },
                           startSeconds: { type: "number" },
                           endSeconds: { type: "number" },
                           title: { type: "string" },
@@ -251,7 +255,7 @@ function parseOpenAiClipOutput(input: {
     if (duration > maxDurationSeconds) {
       console.warn(
         `[REJECTED] Clip ${index + 1} is ${duration.toFixed(1)}s (max ${maxDurationSeconds}s). ` +
-        `Timestamps: ${clip.startSeconds}-${clip.endSeconds}. Skipping.`
+          `Timestamps: ${clip.startSeconds}-${clip.endSeconds}. Skipping.`
       );
       continue;
     }
@@ -305,7 +309,7 @@ function parseOpenAiClipOutput(input: {
 
 function buildPrompt(input: ClipSelectionModelInput, maxTranscriptChars: number): string {
   return [
-    "Find the 3 most VIRAL moments from this sermon. Strong emotion = virality.",
+    "Find the 6 most VIRAL moments from this sermon. Strong emotion = virality.",
     "",
     "Look for moments that are:",
     "- Provocative or challenging",

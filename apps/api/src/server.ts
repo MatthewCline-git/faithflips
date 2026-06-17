@@ -6,7 +6,7 @@ import {
   type ServerResponse
 } from "node:http";
 import { extname, join, normalize, relative } from "node:path";
-import { submitSermonSchema } from "@faithflips/core";
+import { blurPadSpanSchema, submitSermonSchema } from "@faithflips/core";
 import { z } from "zod";
 import type { JobStore } from "./job-store.js";
 import { createProcessingService, type ProcessingService } from "./processing-service.js";
@@ -19,6 +19,20 @@ export type ApiErrorResponse = {
 };
 
 const jsonBodySchema = z.record(z.string(), z.unknown());
+
+const rerenderBodySchema = z
+  .object({
+    startSeconds: z.number().nonnegative(),
+    endSeconds: z.number().positive()
+  })
+  .refine((body) => body.endSeconds > body.startSeconds, {
+    message: "endSeconds must be greater than startSeconds",
+    path: ["endSeconds"]
+  });
+
+const finalizeBodySchema = z.object({
+  blurPadSpans: z.array(blurPadSpanSchema).default([])
+});
 
 export function createServer(input: {
   readonly store: JobStore;
@@ -102,26 +116,23 @@ export async function createApiResponse(input: {
   }
 
   const rerenderMatch = /^\/clips\/([^/]+)\/rerender$/.exec(input.pathname);
-  console.log(`[DEBUG] Rerender check: method=${input.method} match=${JSON.stringify(rerenderMatch)}`);
   if (input.method === "POST" && rerenderMatch) {
     const clipId = decodeURIComponent(rerenderMatch[1] ?? "");
-    const body = input.body as { startSeconds?: number; endSeconds?: number } | undefined;
-    const startSeconds = body?.startSeconds;
-    const endSeconds = body?.endSeconds;
+    const parsedBody = rerenderBodySchema.safeParse(input.body);
 
-    if (typeof startSeconds !== "number" || typeof endSeconds !== "number") {
+    if (!parsedBody.success) {
       return {
         statusCode: 400,
         body: {
           error: {
             code: "invalid_rerender_input",
-            message: "startSeconds and endSeconds are required"
+            message: parsedBody.error.issues[0]?.message ?? "Invalid re-render input"
           }
         } satisfies ApiErrorResponse
       };
     }
 
-    const result = await input.processing.rerenderClip(clipId, { startSeconds, endSeconds });
+    const result = await input.processing.rerenderClip(clipId, parsedBody.data);
     if (!result.ok) {
       return {
         statusCode: 400,
@@ -137,7 +148,39 @@ export async function createApiResponse(input: {
     return { statusCode: 200, body: result.value };
   }
 
-  console.log(`[DEBUG] No route matched: method=${input.method} path=${input.pathname}`);
+  const finalizeMatch = /^\/clips\/([^/]+)\/finalize$/.exec(input.pathname);
+  if (input.method === "POST" && finalizeMatch) {
+    const clipId = decodeURIComponent(finalizeMatch[1] ?? "");
+    const parsedBody = finalizeBodySchema.safeParse(input.body);
+
+    if (!parsedBody.success) {
+      return {
+        statusCode: 400,
+        body: {
+          error: {
+            code: "invalid_finalize_input",
+            message: parsedBody.error.issues[0]?.message ?? "Invalid finalize input"
+          }
+        } satisfies ApiErrorResponse
+      };
+    }
+
+    const result = await input.processing.finalizeClip(clipId, parsedBody.data.blurPadSpans);
+    if (!result.ok) {
+      return {
+        statusCode: 400,
+        body: {
+          error: {
+            code: result.error.type,
+            message: processingErrorMessage(result.error)
+          }
+        } satisfies ApiErrorResponse
+      };
+    }
+
+    return { statusCode: 200, body: result.value };
+  }
+
   return {
     statusCode: 404,
     body: {
@@ -174,7 +217,6 @@ async function handleRequest(
     }
 
     const url = new URL(request.url ?? "/", "http://localhost");
-    console.log(`[DEBUG] ${request.method} ${url.pathname}`);
     if (request.method === "GET" && url.pathname.startsWith("/assets/")) {
       await writeAsset(response, assetRoot, url.pathname);
       return;

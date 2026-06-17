@@ -26,7 +26,7 @@ export const clipSelectionPromptV1: ClipSelectionPrompt = {
     {
       role: "user",
       content:
-        "Find 3 moments that stop someone mid-scroll. Counterintuitive truths, raw emotional beats, practical wisdom. Hook must be direct and personal like 'If you're struggling with X, hear this' - never generic. Caption like a real person, not a brand. No hashtags. Include firstWords and lastWords to verify complete thoughts."
+        "Find 6 moments that stop someone mid-scroll. Counterintuitive truths, raw emotional beats, practical wisdom. Hook must be direct and personal like 'If you're struggling with X, hear this' - never generic. Caption like a real person, not a brand. No hashtags. Include firstWords and lastWords to verify complete thoughts."
     }
   ]
 };
@@ -47,7 +47,7 @@ export const clipSelectionPromptV2: ClipSelectionPrompt = {
     {
       role: "user",
       content:
-        "Find the 3 strongest clips - counterintuitive truths, raw moments, practical wisdom. Hook must grab immediately: 'Nobody talks about this but...', 'If you're struggling with X...'. Caption like a person, not a brand. No hashtags. Include firstWords and lastWords to verify complete thoughts."
+        "Find the 6 strongest clips - counterintuitive truths, raw moments, practical wisdom. Hook must grab immediately: 'Nobody talks about this but...', 'If you're struggling with X...'. Caption like a person, not a brand. No hashtags. Include firstWords and lastWords to verify complete thoughts."
     }
   ]
 };

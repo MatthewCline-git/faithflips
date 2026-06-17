@@ -4,6 +4,7 @@ import {
   ok,
   sermonSchema,
   transitionProcessingJob,
+  type BlurPadSpan,
   type GeneratedClip,
   type ProcessingJob,
   type ProcessingJobEvent,
@@ -58,7 +59,11 @@ export type ProcessingService = {
   getJob(jobId: string): Promise<Result<PersistedJobRecord, ProcessingServiceError>>;
   rerenderClip(
     clipId: string,
-    timestamps: { startSeconds: number; endSeconds: number }
+    trim: { startSeconds: number; endSeconds: number }
+  ): Promise<Result<GeneratedClip, ProcessingServiceError>>;
+  finalizeClip(
+    clipId: string,
+    blurPadSpans: readonly BlurPadSpan[]
   ): Promise<Result<GeneratedClip, ProcessingServiceError>>;
 };
 
@@ -304,7 +309,7 @@ export function createProcessingService(input: {
           jobId: clipsSelected.value.job.id,
           clipIndex,
           clipTotal,
-          videoUrl: rendered.value.videoUrl
+          cropVideoUrl: rendered.value.cropVideoUrl
         });
 
         renderedClips.push({ candidate: parsedCandidate, renderedClip: rendered.value });
@@ -339,58 +344,49 @@ export function createProcessingService(input: {
       const record = await input.store.get(jobId);
       return record ? ok(record) : err({ type: "job_not_found", jobId });
     },
-    async rerenderClip(clipId, timestamps) {
-      const allJobs = await input.store.list();
-      let foundRecord: PersistedJobRecord | undefined;
-      let foundClipIndex = -1;
-
-      for (const record of allJobs) {
-        const idx = record.clips.findIndex((c) => c.candidate.id === clipId);
-        if (idx >= 0) {
-          foundRecord = record;
-          foundClipIndex = idx;
-          break;
-        }
-      }
-
-      if (!foundRecord || foundClipIndex < 0) {
+    async rerenderClip(clipId, trim) {
+      const found = await findClip(input.store, clipId);
+      if (!found) {
         return err({ type: "job_not_found", jobId: clipId });
       }
+      const { record, clipIndex, clip } = found;
 
-      const existingClip = foundRecord.clips[foundClipIndex]!;
+      // A trim re-renders both variants from source for the new window. Blur-pad spans
+      // are clip-relative, so they no longer line up and are reset to the default crop.
       const updatedCandidate = clipCandidateSchema.parse({
-        ...existingClip.candidate,
-        startSeconds: timestamps.startSeconds,
-        endSeconds: timestamps.endSeconds
+        ...clip.candidate,
+        startSeconds: trim.startSeconds,
+        endSeconds: trim.endSeconds,
+        blurPadSpans: []
       });
 
       logger({
         event: "clip_rerender_started",
         clipId,
-        sermonId: foundRecord.sermon.id,
-        startSeconds: timestamps.startSeconds,
-        endSeconds: timestamps.endSeconds
+        sermonId: record.sermon.id,
+        startSeconds: trim.startSeconds,
+        endSeconds: trim.endSeconds
       });
 
       const mediaResult = await sourceMedia.getMedia({
-        sourceUrl: foundRecord.sermon.sourceUrl
+        sourceUrl: record.sermon.sourceUrl
       });
       if (!mediaResult.ok) {
         return err({
           type: "workflow_failed",
-          jobId: foundRecord.job.id,
+          jobId: record.job.id,
           message: `Failed to get media: ${mediaResult.error.type}`
         });
       }
 
       const transcriptResult = await transcription.transcribe({
-        sermonId: foundRecord.sermon.id,
+        sermonId: record.sermon.id,
         media: mediaResult.value
       });
       if (!transcriptResult.ok) {
         return err({
           type: "workflow_failed",
-          jobId: foundRecord.job.id,
+          jobId: record.job.id,
           message: `Failed to get transcript: ${transcriptResult.error.type}`
         });
       }
@@ -409,7 +405,7 @@ export function createProcessingService(input: {
         });
         return err({
           type: "workflow_failed",
-          jobId: foundRecord.job.id,
+          jobId: record.job.id,
           message: `Render failed: ${rendered.error.type}`
         });
       }
@@ -419,19 +415,85 @@ export function createProcessingService(input: {
         renderedClip: rendered.value
       };
 
-      const updatedClips = [...foundRecord.clips];
-      updatedClips[foundClipIndex] = updatedClip;
-      await input.store.update({ ...foundRecord, clips: updatedClips });
+      const updatedClips = [...record.clips];
+      updatedClips[clipIndex] = updatedClip;
+      await input.store.update({ ...record, clips: updatedClips });
 
       logger({
         event: "clip_rerender_completed",
         clipId,
-        videoUrl: rendered.value.videoUrl
+        cropVideoUrl: rendered.value.cropVideoUrl
+      });
+
+      return ok(updatedClip);
+    },
+    async finalizeClip(clipId, blurPadSpans) {
+      const found = await findClip(input.store, clipId);
+      if (!found) {
+        return err({ type: "job_not_found", jobId: clipId });
+      }
+      const { record, clipIndex, clip } = found;
+
+      // Persist the chosen fill plan on the candidate, then stitch the pre-rendered crop
+      // and blur variants locally — the source is never re-fetched.
+      const updatedCandidate = clipCandidateSchema.parse({
+        ...clip.candidate,
+        blurPadSpans
+      });
+
+      logger({
+        event: "clip_finalize_started",
+        clipId,
+        sermonId: record.sermon.id,
+        blurPadSpanCount: updatedCandidate.blurPadSpans.length
+      });
+
+      const stitched = await renderer.stitch({
+        candidate: updatedCandidate,
+        blurPadSpans: updatedCandidate.blurPadSpans
+      });
+      if (!stitched.ok) {
+        logger({ event: "clip_finalize_failed", clipId, error: stitched.error.type });
+        return err({
+          type: "workflow_failed",
+          jobId: record.job.id,
+          message: `Stitch failed: ${stitched.error.type}`
+        });
+      }
+
+      const updatedClip: GeneratedClip = {
+        candidate: updatedCandidate,
+        renderedClip: { ...clip.renderedClip, finalVideoUrl: stitched.value.finalVideoUrl }
+      };
+
+      const updatedClips = [...record.clips];
+      updatedClips[clipIndex] = updatedClip;
+      await input.store.update({ ...record, clips: updatedClips });
+
+      logger({
+        event: "clip_finalize_completed",
+        clipId,
+        finalVideoUrl: stitched.value.finalVideoUrl
       });
 
       return ok(updatedClip);
     }
   };
+}
+
+async function findClip(
+  store: JobStore,
+  clipId: string
+): Promise<{ record: PersistedJobRecord; clipIndex: number; clip: GeneratedClip } | undefined> {
+  const allJobs = await store.list();
+  for (const record of allJobs) {
+    const clipIndex = record.clips.findIndex((c) => c.candidate.id === clipId);
+    const clip = record.clips[clipIndex];
+    if (clipIndex >= 0 && clip) {
+      return { record, clipIndex, clip };
+    }
+  }
+  return undefined;
 }
 
 async function applyTransition(

@@ -4,6 +4,7 @@ import {
   ok,
   renderedClipSchema,
   transcriptSchema,
+  type BlurPadSpan,
   type ClipCandidate,
   type RenderedClip,
   type Result
@@ -72,14 +73,14 @@ export type RenderError =
   | {
       readonly type: "render_failed";
       readonly clipCandidateId: string;
-      readonly step: "video" | "thumbnail";
+      readonly step: "video" | "thumbnail" | "stitch";
       readonly message: string;
       readonly exitCode?: number;
     }
   | {
       readonly type: "storage_upload_failed";
       readonly clipCandidateId: string;
-      readonly asset: "video" | "thumbnail";
+      readonly asset: "video" | "thumbnail" | "final";
       readonly error: StorageError;
     }
   | {
@@ -88,8 +89,16 @@ export type RenderError =
       readonly issues: readonly string[];
     };
 
+export type FillMode = "crop-fill" | "blur-pad";
+
+export type StitchInput = {
+  readonly candidate: ClipCandidate;
+  readonly blurPadSpans: readonly BlurPadSpan[];
+};
+
 export type VideoRenderer = {
   render(input: RenderClipInput): Promise<Result<RenderedClip, RenderError>>;
+  stitch(input: StitchInput): Promise<Result<{ readonly finalVideoUrl: string }, RenderError>>;
 };
 
 export function createFfmpegRenderer(input: {
@@ -116,10 +125,8 @@ export function createFfmpegRenderer(input: {
       }
 
       const { candidate, transcript, sourceMedia, subtitleStyle, burnSubtitles } = parsedInput.data;
-      const outputVideoPath = input.workspace.createPath({
-        clipCandidateId: candidate.id,
-        extension: "mp4"
-      });
+      const cropVideoPath = variantPath(input.workspace, candidate.id, "crop");
+      const blurVideoPath = variantPath(input.workspace, candidate.id, "blur");
       const outputThumbnailPath = input.workspace.createPath({
         clipCandidateId: candidate.id,
         extension: "jpg"
@@ -158,37 +165,25 @@ export function createFfmpegRenderer(input: {
         aspectRatio: "9:16"
       });
 
-      const videoResult = await input.commandRunner.run(
-        ffmpegPath,
-        buildVideoArgs({
-          candidate,
-          sourceMedia,
-          outputVideoPath,
-          subtitleStyle,
-          ...(subtitlePath ? { subtitlePath } : {})
-        })
-      );
-      if (!videoResult.ok || videoResult.value.exitCode !== 0) {
-        const commandError = mapCommandFailure(videoResult);
-        logger({
-          event: "rendering_failed",
-          clipCandidateId: candidate.id,
-          step: "video",
-          errorType: "render_failed",
-          exitCode: commandError.exitCode
-        });
-        return err({
-          type: "render_failed",
-          clipCandidateId: candidate.id,
-          step: "video",
-          message: commandError.message,
-          ...optionalExitCode(commandError.exitCode)
-        });
-      }
+      // Render both full-length variants up front so the editor can preview either one
+      // instantly and the final clip can be stitched locally without re-touching the source.
+      const cropUrl = await renderAndUpload({
+        mode: "crop-fill",
+        outputVideoPath: cropVideoPath,
+        key: `renders/${candidate.sermonId}/${candidate.id}-crop.mp4`
+      });
+      if (!cropUrl.ok) return cropUrl;
+
+      const blurUrl = await renderAndUpload({
+        mode: "blur-pad",
+        outputVideoPath: blurVideoPath,
+        key: `renders/${candidate.sermonId}/${candidate.id}-blur.mp4`
+      });
+      if (!blurUrl.ok) return blurUrl;
 
       const thumbnailResult = await input.commandRunner.run(
         ffmpegPath,
-        buildThumbnailArgs({ candidate, outputVideoPath, outputThumbnailPath })
+        buildThumbnailArgs({ candidate, sourceVideoPath: cropVideoPath, outputThumbnailPath })
       );
       if (!thumbnailResult.ok || thumbnailResult.value.exitCode !== 0) {
         const commandError = mapCommandFailure(thumbnailResult);
@@ -205,20 +200,6 @@ export function createFfmpegRenderer(input: {
           step: "thumbnail",
           message: commandError.message,
           ...optionalExitCode(commandError.exitCode)
-        });
-      }
-
-      const videoObject = await input.storage.putObject({
-        key: `renders/${candidate.sermonId}/${candidate.id}.mp4`,
-        filePath: outputVideoPath,
-        contentType: "video/mp4"
-      });
-      if (!videoObject.ok) {
-        return err({
-          type: "storage_upload_failed",
-          clipCandidateId: candidate.id,
-          asset: "video",
-          error: videoObject.error
         });
       }
 
@@ -240,7 +221,8 @@ export function createFfmpegRenderer(input: {
         clipCandidateId: candidate.id,
         format: "mp4",
         aspectRatio: "9:16",
-        videoUrl: videoObject.value.url,
+        cropVideoUrl: cropUrl.value,
+        blurVideoUrl: blurUrl.value,
         thumbnailUrl: thumbnailObject.value.url,
         subtitleStyle,
         renderStatus: "completed"
@@ -258,24 +240,150 @@ export function createFfmpegRenderer(input: {
       logger({
         event: "rendering_completed",
         clipCandidateId: candidate.id,
-        videoUrl: renderedClip.data.videoUrl,
+        cropVideoUrl: renderedClip.data.cropVideoUrl,
+        blurVideoUrl: renderedClip.data.blurVideoUrl,
         thumbnailUrl: renderedClip.data.thumbnailUrl
       });
       return ok(renderedClip.data);
+
+      async function renderAndUpload(variant: {
+        readonly mode: FillMode;
+        readonly outputVideoPath: string;
+        readonly key: string;
+      }): Promise<Result<string, RenderError>> {
+        const result = await input.commandRunner.run(
+          ffmpegPath,
+          buildVideoArgs({
+            candidate,
+            sourceMedia,
+            mode: variant.mode,
+            outputVideoPath: variant.outputVideoPath,
+            subtitleStyle,
+            ...(subtitlePath ? { subtitlePath } : {})
+          })
+        );
+        if (!result.ok || result.value.exitCode !== 0) {
+          const commandError = mapCommandFailure(result);
+          logger({
+            event: "rendering_failed",
+            clipCandidateId: candidate.id,
+            step: "video",
+            mode: variant.mode,
+            errorType: "render_failed",
+            exitCode: commandError.exitCode
+          });
+          return err({
+            type: "render_failed",
+            clipCandidateId: candidate.id,
+            step: "video",
+            message: commandError.message,
+            ...optionalExitCode(commandError.exitCode)
+          });
+        }
+
+        const object = await input.storage.putObject({
+          key: variant.key,
+          filePath: variant.outputVideoPath,
+          contentType: "video/mp4"
+        });
+        if (!object.ok) {
+          return err({
+            type: "storage_upload_failed",
+            clipCandidateId: candidate.id,
+            asset: "video",
+            error: object.error
+          });
+        }
+        return ok(object.value.url);
+      }
+    },
+
+    async stitch(stitchInput) {
+      const { candidate } = stitchInput;
+      const segments = buildFillSegments(
+        stitchInput.blurPadSpans,
+        candidate.endSeconds - candidate.startSeconds
+      );
+
+      const cropVideoPath = variantPath(input.workspace, candidate.id, "crop");
+      const blurVideoPath = variantPath(input.workspace, candidate.id, "blur");
+      const finalVideoPath = variantPath(input.workspace, candidate.id, "final");
+
+      logger({
+        event: "stitch_started",
+        clipCandidateId: candidate.id,
+        segmentCount: segments.length
+      });
+
+      const result = await input.commandRunner.run(
+        ffmpegPath,
+        buildStitchArgs({ cropVideoPath, blurVideoPath, finalVideoPath, segments })
+      );
+      if (!result.ok || result.value.exitCode !== 0) {
+        const commandError = mapCommandFailure(result);
+        logger({
+          event: "rendering_failed",
+          clipCandidateId: candidate.id,
+          step: "stitch",
+          errorType: "render_failed",
+          exitCode: commandError.exitCode
+        });
+        return err({
+          type: "render_failed",
+          clipCandidateId: candidate.id,
+          step: "stitch",
+          message: commandError.message,
+          ...optionalExitCode(commandError.exitCode)
+        });
+      }
+
+      const object = await input.storage.putObject({
+        key: `renders/${candidate.sermonId}/${candidate.id}-final.mp4`,
+        filePath: finalVideoPath,
+        contentType: "video/mp4"
+      });
+      if (!object.ok) {
+        return err({
+          type: "storage_upload_failed",
+          clipCandidateId: candidate.id,
+          asset: "final",
+          error: object.error
+        });
+      }
+
+      logger({
+        event: "stitch_completed",
+        clipCandidateId: candidate.id,
+        finalVideoUrl: object.value.url
+      });
+      return ok({ finalVideoUrl: object.value.url });
     }
   };
+}
+
+function variantPath(
+  workspace: RenderWorkspace,
+  clipCandidateId: string,
+  variant: "crop" | "blur" | "final"
+): string {
+  return workspace.createPath({
+    clipCandidateId: `${clipCandidateId}-${variant}`,
+    extension: "mp4"
+  });
 }
 
 export function buildVideoArgs(input: {
   readonly candidate: ClipCandidate;
   readonly sourceMedia: SourceMediaAsset;
+  readonly mode: FillMode;
   readonly subtitlePath?: string;
   readonly outputVideoPath: string;
   readonly subtitleStyle: z.infer<typeof subtitleStyleSchema>;
 }): readonly string[] {
+  const videoFilter = input.mode === "blur-pad" ? staticBlurPadFilter() : cropFillFilter();
   const vf = input.subtitlePath
-    ? `${verticalVideoFilter()},${subtitleFilter(input.subtitlePath, input.subtitleStyle)}`
-    : verticalVideoFilter();
+    ? `${videoFilter},${subtitleFilter(input.subtitlePath, input.subtitleStyle)}`
+    : videoFilter;
 
   return [
     "-y",
@@ -303,25 +411,116 @@ export function buildVideoArgs(input: {
 
 export function buildThumbnailArgs(input: {
   readonly candidate: ClipCandidate;
-  readonly outputVideoPath: string;
+  readonly sourceVideoPath: string;
   readonly outputThumbnailPath: string;
 }): readonly string[] {
+  // Grabbed from the already-rendered (1080x1920) crop clip, so no scaling is needed.
+  const midpointSeconds = (input.candidate.endSeconds - input.candidate.startSeconds) / 2;
   return [
     "-y",
     "-ss",
-    secondsArg((input.candidate.endSeconds - input.candidate.startSeconds) / 2),
+    secondsArg(midpointSeconds),
     "-i",
-    input.outputVideoPath,
+    input.sourceVideoPath,
     "-frames:v",
     "1",
-    "-vf",
-    verticalVideoFilter(),
     input.outputThumbnailPath
   ];
 }
 
-function verticalVideoFilter(): string {
+/**
+ * Builds the local stitch: a single re-encode that concatenates time slices, taking each
+ * slice from the crop input (0) or blur input (1) per the contiguous segment plan. Video
+ * comes from the trimmed/concatenated slices; audio is mapped straight from the crop input
+ * (identical in both variants), so it stays continuous across cuts.
+ */
+export function buildStitchArgs(input: {
+  readonly cropVideoPath: string;
+  readonly blurVideoPath: string;
+  readonly finalVideoPath: string;
+  readonly segments: readonly FillSegment[];
+}): readonly string[] {
+  const trims = input.segments.map((segment, index) => {
+    const inputIndex = segment.mode === "blur-pad" ? 1 : 0;
+    return `[${String(inputIndex)}:v]trim=${secondsArg(segment.startSeconds)}:${secondsArg(segment.endSeconds)},setpts=PTS-STARTPTS[s${String(index)}]`;
+  });
+  const labels = input.segments.map((_, index) => `[s${String(index)}]`).join("");
+  const filterComplex = `${trims.join(";")};${labels}concat=n=${String(input.segments.length)}:v=1:a=0[outv]`;
+
+  return [
+    "-y",
+    "-i",
+    input.cropVideoPath,
+    "-i",
+    input.blurVideoPath,
+    "-filter_complex",
+    filterComplex,
+    "-map",
+    "[outv]",
+    "-map",
+    "0:a?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "23",
+    "-c:a",
+    "aac",
+    "-movflags",
+    "+faststart",
+    input.finalVideoPath
+  ];
+}
+
+/**
+ * Contiguous fill-mode segments covering [0, duration] in clip-relative seconds. Blur-pad
+ * spans are the overrides; everything else is the default close-up crop. Mirrors the web
+ * editor's segmentsFromSpans so preview and final stitch agree.
+ */
+export function buildFillSegments(
+  blurPadSpans: readonly BlurPadSpan[],
+  duration: number
+): readonly FillSegment[] {
+  const segments: FillSegment[] = [];
+  let cursor = 0;
+  for (const span of blurPadSpans) {
+    const start = Math.max(0, Math.min(span.startSeconds, duration));
+    const end = Math.max(0, Math.min(span.endSeconds, duration));
+    if (end <= start) continue;
+    if (start > cursor) {
+      segments.push({ startSeconds: cursor, endSeconds: start, mode: "crop-fill" });
+    }
+    segments.push({ startSeconds: start, endSeconds: end, mode: "blur-pad" });
+    cursor = end;
+  }
+  if (cursor < duration || segments.length === 0) {
+    segments.push({ startSeconds: cursor, endSeconds: duration, mode: "crop-fill" });
+  }
+  return segments;
+}
+
+type FillSegment = {
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+  readonly mode: FillMode;
+};
+
+function cropFillFilter(): string {
   return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920";
+}
+
+/**
+ * A still blur-pad frame (no time gating) for thumbnails: blurred zoomed background
+ * with the aspect-preserved frame centered on top.
+ */
+function staticBlurPadFilter(): string {
+  return [
+    `split=2[bg][fg]`,
+    `[bg]${cropFillFilter()},gblur=sigma=20[bgblur]`,
+    `[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fit]`,
+    `[bgblur][fit]overlay=(W-w)/2:(H-h)/2`
+  ].join(";");
 }
 
 function subtitleFilter(path: string, style: z.infer<typeof subtitleStyleSchema>): string {

@@ -156,10 +156,10 @@ export function createDeterministicClipSelectionProvider(input?: {
 
 function chooseMoments(input: ClipSelectionModelInput): readonly ClipSelectionHint[] {
   if (input.hints && input.hints.length > 0) {
-    return input.hints.slice(0, input.prompt.version === "clip-selection-v2" ? 4 : 3);
+    return input.hints.slice(0, 6);
   }
 
-  return input.transcript.segments.slice(0, 3).map((segment) => ({
+  return input.transcript.segments.slice(0, 6).map((segment) => ({
     category: inferCategory(segment.text),
     startSeconds: segment.startSeconds,
     endSeconds: segment.endSeconds,
