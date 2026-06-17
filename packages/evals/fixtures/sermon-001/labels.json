@@ -1,0 +1,22 @@
+{
+  "goodMoments": [
+    {
+      "category": "encouragement",
+      "startSeconds": 18,
+      "endSeconds": 76,
+      "note": "Clear comfort for tired viewers and complete enough to stand alone."
+    },
+    {
+      "category": "invitation",
+      "startSeconds": 160,
+      "endSeconds": 204,
+      "note": "Direct response moment with a concrete invitation."
+    },
+    {
+      "category": "teaching",
+      "startSeconds": 118,
+      "endSeconds": 160,
+      "note": "Practical teaching about faith becoming visible in ordinary life."
+    }
+  ]
+}

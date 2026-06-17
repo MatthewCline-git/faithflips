@@ -1,0 +1,33 @@
+services:
+  api:
+    build: .
+    command: pnpm --filter @faithflips/api dev
+    working_dir: /app
+    ports:
+      - "4001:4001"
+    environment:
+      PORT: "4001"
+      FAITHFLIPS_PUBLIC_BASE_URL: "http://127.0.0.1:4001"
+      FAITHFLIPS_DATA_DIR: "/app/.faithflips-data"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+    volumes:
+      - faithflips-data:/app/.faithflips-data
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+
+  web:
+    build: .
+    command: pnpm --filter @faithflips/web exec vite --host 0.0.0.0 --port 5175
+    working_dir: /app
+    ports:
+      - "5175:5175"
+    environment:
+      VITE_API_URL: "http://127.0.0.1:4001"
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+    depends_on:
+      - api
+
+volumes:
+  faithflips-data:

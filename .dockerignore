@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+.git
+**/.faithflips-data
+packages/evals/reports
+*.tsbuildinfo
+.DS_Store

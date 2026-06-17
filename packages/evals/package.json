@@ -1,0 +1,29 @@
+{
+  "name": "@faithflips/evals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "eval": "tsx src/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@faithflips/core": "workspace:*",
+    "@faithflips/model": "workspace:*",
+    "@faithflips/prompts": "workspace:*",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}

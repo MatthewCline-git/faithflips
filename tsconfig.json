@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/ingestion" },
+    { "path": "packages/rendering" },
+    { "path": "packages/prompts" },
+    { "path": "packages/model" },
+    { "path": "packages/evals" },
+    { "path": "apps/api" },
+    { "path": "apps/web" }
+  ]
+}

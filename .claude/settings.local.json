@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(pnpm test:*)",
+      "Bash(timeout 3 pnpm:*)",
+      "Bash(node:*)",
+      "Bash(npx tsx:*)"
+    ]
+  }
+}

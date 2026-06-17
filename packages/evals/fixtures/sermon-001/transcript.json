@@ -1,0 +1,46 @@
+{
+  "sermonId": "sermon_fixture_001",
+  "language": "en",
+  "segments": [
+    {
+      "startSeconds": 0,
+      "endSeconds": 18,
+      "text": "Good morning church. Today we are talking about grace in the ordinary places where we often feel unseen."
+    },
+    {
+      "startSeconds": 18,
+      "endSeconds": 42,
+      "text": "Some of us walked in tired, carrying a week that did not go according to plan. The invitation of Jesus is not to pretend we are strong, but to come honestly."
+    },
+    {
+      "startSeconds": 42,
+      "endSeconds": 76,
+      "text": "Grace does not erase the truth about our lives. Grace tells the truth and then meets us there with mercy."
+    },
+    {
+      "startSeconds": 76,
+      "endSeconds": 118,
+      "text": "When Jesus says come to me, he is not recruiting impressive people. He is welcoming burdened people into rest and into a new way of living."
+    },
+    {
+      "startSeconds": 118,
+      "endSeconds": 160,
+      "text": "That means faith becomes visible on Monday morning. It becomes patience in a meeting, forgiveness at the kitchen table, and courage to make the next right choice."
+    },
+    {
+      "startSeconds": 160,
+      "endSeconds": 204,
+      "text": "If you have been waiting until you have everything together before you respond to God, hear the good news. Today is a good day to bring him your actual life."
+    },
+    {
+      "startSeconds": 204,
+      "endSeconds": 246,
+      "text": "The church is not a room full of finished people. It is a people learning together how to receive grace and become graceful."
+    },
+    {
+      "startSeconds": 246,
+      "endSeconds": 300,
+      "text": "So this week, practice one concrete act of grace. Make the call, offer the apology, serve quietly, or pray before you react."
+    }
+  ]
+}
