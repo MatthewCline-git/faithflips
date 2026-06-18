@@ -20,7 +20,8 @@ export const youtubeUrlSchema = z
   }, "Expected a YouTube URL");
 
 export const submitSermonSchema = z.object({
-  sourceUrl: youtubeUrlSchema
+  sourceUrl: youtubeUrlSchema,
+  clipCount: z.number().int().min(1).max(12).default(6)
 });
 
 export type SubmitSermonInput = z.infer<typeof submitSermonSchema>;
@@ -108,7 +109,14 @@ export const renderedClipSchema = z.object({
   finalVideoUrl: z.url().optional(),
   thumbnailUrl: z.url(),
   subtitleStyle: z.string().min(1),
-  renderStatus: z.enum(["completed", "failed"])
+  renderStatus: z.enum(["completed", "failed"]),
+  // Optional buffered preview (crop only, ±bufferSeconds around the clip). When present,
+  // the editor plays this file instead of cropVideoUrl so small timestamp adjustments
+  // can be previewed instantly without a re-render. previewStartSeconds is the sermon-time
+  // offset where the preview file begins, letting the player compute the clip's position
+  // within the file.
+  previewUrl: z.url().optional(),
+  previewStartSeconds: z.number().nonnegative().optional()
 });
 
 export type RenderedClip = z.infer<typeof renderedClipSchema>;
@@ -120,7 +128,8 @@ export const sermonSchema = z.object({
   title: z.string().min(1),
   speaker: z.string().min(1),
   durationSeconds: z.number().positive(),
-  createdAt: z.iso.datetime()
+  createdAt: z.iso.datetime(),
+  clipCount: z.number().int().min(1).max(12).default(6)
 });
 
 export type Sermon = z.infer<typeof sermonSchema>;

@@ -6,7 +6,8 @@ describe("submitSermonSchema", () => {
     expect(
       submitSermonSchema.parse({ sourceUrl: "https://www.youtube.com/watch?v=abc123" })
     ).toEqual({
-      sourceUrl: "https://www.youtube.com/watch?v=abc123"
+      sourceUrl: "https://www.youtube.com/watch?v=abc123",
+      clipCount: 6
     });
   });
 

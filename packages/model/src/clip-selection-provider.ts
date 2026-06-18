@@ -66,6 +66,7 @@ export type ClipSelectionModelInput = {
   readonly transcript: Transcript;
   readonly prompt: ClipSelectionPrompt;
   readonly hints?: readonly ClipSelectionHint[];
+  readonly clipCount?: number;
 };
 
 export type ClipSelectionModelProvider = {
@@ -155,11 +156,12 @@ export function createDeterministicClipSelectionProvider(input?: {
 }
 
 function chooseMoments(input: ClipSelectionModelInput): readonly ClipSelectionHint[] {
+  const count = input.clipCount ?? 6;
   if (input.hints && input.hints.length > 0) {
-    return input.hints.slice(0, 6);
+    return input.hints.slice(0, count);
   }
 
-  return input.transcript.segments.slice(0, 6).map((segment) => ({
+  return input.transcript.segments.slice(0, count).map((segment) => ({
     category: inferCategory(segment.text),
     startSeconds: segment.startSeconds,
     endSeconds: segment.endSeconds,
@@ -291,7 +293,8 @@ export function hashModelInput(input: ClipSelectionModelInput): string {
       messages: input.prompt.messages,
       outputContract: input.prompt.outputContract
     },
-    hints: input.hints ?? []
+    hints: input.hints ?? [],
+    clipCount: input.clipCount ?? 6
   });
 }
 

@@ -144,7 +144,8 @@ export function createProcessingService(input: {
         title: "Processing sermon",
         speaker: "Unknown speaker",
         durationSeconds: 1,
-        createdAt
+        createdAt,
+        clipCount: submission.clipCount ?? 6
       });
       const job: ProcessingJob = {
         id: `job_${stableId}`,
@@ -221,7 +222,8 @@ export function createProcessingService(input: {
       const clipSelection = await model.selectClips({
         sermonId: transcriptReady.value.sermon.id,
         transcript: ingestionResult.value.transcript,
-        prompt: clipSelectionPromptV1
+        prompt: clipSelectionPromptV1,
+        clipCount: transcriptReady.value.sermon.clipCount ?? 6
       });
       if (!clipSelection.ok) {
         logger({

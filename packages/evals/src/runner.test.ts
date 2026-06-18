@@ -73,7 +73,8 @@ const fixture: EvalFixture = {
     title: "Fixture Test",
     speaker: "Pastor Test",
     durationSeconds: 300,
-    createdAt: "2026-01-05T00:00:00.000Z"
+    createdAt: "2026-01-05T00:00:00.000Z",
+    clipCount: 6
   },
   transcript: {
     sermonId: "sermon_fixture_test",

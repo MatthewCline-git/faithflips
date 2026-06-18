@@ -32,9 +32,11 @@ const openAiOutputSchema = z.object({
   clips: z.array(openAiClipSchema).min(1).max(6)
 });
 
-const rankingOutputSchema = z.object({
-  selected: z.array(z.number().int().nonnegative()).min(1).max(6)
-});
+function rankingOutputSchema(maxItems: number) {
+  return z.object({
+    selected: z.array(z.number().int().nonnegative()).min(1).max(maxItems)
+  });
+}
 
 type RawClip = z.infer<typeof openAiClipSchema>;
 
@@ -178,22 +180,23 @@ export function createOpenAiClipSelectionProvider(input: {
         });
       }
 
+      const desiredCount = selectionInput.clipCount ?? 6;
       let finalRawClips: RawClip[];
-      if (allCandidates.length <= 6) {
+      if (allCandidates.length <= desiredCount) {
         finalRawClips = allCandidates;
       } else {
         const ranked = await rankCandidates({
           apiKey,
           model,
           candidates: allCandidates,
-          desiredCount: 6,
+          desiredCount,
           timeoutMs,
           logger,
           sermonId: selectionInput.sermonId
         });
         finalRawClips =
           ranked ??
-          [...allCandidates].sort((a, b) => b.confidence - a.confidence).slice(0, 6);
+          [...allCandidates].sort((a, b) => b.confidence - a.confidence).slice(0, desiredCount);
       }
 
       const validClips: ClipCandidate[] = [];
@@ -487,7 +490,7 @@ async function rankCandidates(opts: {
   if (!rawText) return null;
 
   const parsedJson = safeJson(rawText);
-  const parsedOutput = rankingOutputSchema.safeParse(parsedJson);
+  const parsedOutput = rankingOutputSchema(desiredCount).safeParse(parsedJson);
   if (!parsedOutput.success) {
     logger({
       event: "clip_selection_ranking_parse_failed",
