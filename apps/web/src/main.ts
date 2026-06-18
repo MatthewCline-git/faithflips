@@ -1,5 +1,5 @@
 import { submitSermonSchema } from "@faithflips/core";
-import type { GeneratedClip, ProcessingJob, Sermon } from "@faithflips/core";
+import type { GeneratedClip, ProcessingJob, ProcessingJobStatus, Sermon } from "@faithflips/core";
 import "./styles.css";
 
 const apiUrl = import.meta.env["VITE_API_URL"] ?? "http://localhost:4000";
@@ -82,8 +82,23 @@ function render(): void {
             ${state.status === "idle" ? "Generate Clips" : "Processing"}
           </button>
         </div>
+        <div class="form-options">
+          <label for="clip-count">Clips
+            <input
+              id="clip-count"
+              name="clipCount"
+              type="number"
+              class="clip-count-input"
+              min="1"
+              max="12"
+              value="6"
+            />
+          </label>
+        </div>
         ${state.error ? `<p class="error">${state.error}</p>` : ""}
       </form>
+
+      ${renderProgressBar()}
 
       ${state.output ? renderReview(state.output) : renderEmptyState()}
     </section>
@@ -107,6 +122,59 @@ function render(): void {
 
   wireFillTimelines();
 }
+
+// ---------------------------------------------------------------------------
+// Progress bar
+// ---------------------------------------------------------------------------
+
+type ProgressStatus = ProcessingJobStatus | "submitting";
+
+function jobProgress(jobStatus: ProgressStatus): { pct: number; caption: string } {
+  switch (jobStatus) {
+    case "submitting":
+      return { pct: 5, caption: "Submitting..." };
+    case "queued":
+      return { pct: 10, caption: "Queued..." };
+    case "fetching_source":
+      return { pct: 22, caption: "Downloading video..." };
+    case "transcribing":
+      return { pct: 42, caption: "Transcribing audio..." };
+    case "selecting_clips":
+      return { pct: 64, caption: "Finding viral moments..." };
+    case "rendering_clips":
+      return { pct: 84, caption: "Rendering clips..." };
+    case "completed":
+      return { pct: 100, caption: "Done!" };
+    case "failed":
+      return { pct: 0, caption: "Failed" };
+  }
+}
+
+function renderProgressBar(): string {
+  if (state.status === "idle") return "";
+
+  const jobStatus: ProgressStatus =
+    state.status === "submitting" ? "submitting" : (state.output?.job.status ?? "queued");
+
+  if (jobStatus === "completed" || jobStatus === "failed") return "";
+
+  const { pct, caption } = jobProgress(jobStatus);
+  return `
+    <div class="progress-panel">
+      <div class="progress-track">
+        <div class="progress-fill" style="width:${String(pct)}%"></div>
+      </div>
+      <div class="progress-meta">
+        <span class="progress-caption">${caption}</span>
+        <span class="progress-pct">${String(pct)}%</span>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Empty state / review
+// ---------------------------------------------------------------------------
 
 function renderEmptyState(): string {
   return `
@@ -143,11 +211,21 @@ function renderReview(output: WorkflowOutput): string {
           ? `<article class="clip-card"><div class="clip-body"><h2>${output.job.status === "failed" ? "Job failed" : "Processing clips"}</h2><p class="hook">${escapeHtml(output.job.failureReason ?? `Current status: ${output.job.status}`)}</p></div></article>`
           : output.clips
               .map(
-                ({ candidate, renderedClip }, index) => `
+                ({ candidate, renderedClip }, index) => {
+                  // Use the buffered preview for the crop video when available so small
+                  // timestamp adjustments can be previewed instantly without re-rendering.
+                  const previewStartSeconds = renderedClip.previewStartSeconds ?? candidate.startSeconds;
+                  const bufferBefore = candidate.startSeconds - previewStartSeconds;
+                  const cropSrc = renderedClip.previewUrl ?? renderedClip.cropVideoUrl;
+
+                  return `
             <article class="clip-card" data-clip-index="${index}">
-              <div class="video-container" data-clip-id="${candidate.id}">
+              <div class="video-container"
+                data-clip-id="${candidate.id}"
+                data-buffer-before="${String(bufferBefore)}"
+                data-preview-start="${String(previewStartSeconds)}">
                 <video class="clip-video crop" controls preload="auto">
-                  <source src="${renderedClip.cropVideoUrl}" type="video/mp4">
+                  <source src="${cropSrc}" type="video/mp4">
                 </video>
                 <video class="clip-video blur" controls muted preload="auto">
                   <source src="${renderedClip.blurVideoUrl}" type="video/mp4">
@@ -179,13 +257,18 @@ function renderReview(output: WorkflowOutput): string {
                 </div>
               </div>
             </article>
-          `
+          `;
+                }
               )
               .join("")
       }
     </section>
   `;
 }
+
+// ---------------------------------------------------------------------------
+// Form submission
+// ---------------------------------------------------------------------------
 
 async function submitSermon(event: Event): Promise<void> {
   event.preventDefault();
@@ -197,7 +280,10 @@ async function submitSermon(event: Event): Promise<void> {
   const formData = new FormData(form);
   const sourceUrlEntry = formData.get("sourceUrl");
   const sourceUrl = typeof sourceUrlEntry === "string" ? sourceUrlEntry : "";
-  const parsed = submitSermonSchema.safeParse({ sourceUrl });
+  const clipCountEntry = formData.get("clipCount");
+  const clipCount =
+    typeof clipCountEntry === "string" ? Math.max(1, Math.min(12, parseInt(clipCountEntry, 10))) : 6;
+  const parsed = submitSermonSchema.safeParse({ sourceUrl, clipCount });
   if (!parsed.success) {
     state = withCurrentOutput({ status: "idle", error: "Enter a valid YouTube URL." });
     render();
@@ -361,7 +447,8 @@ function replaceClip(clipId: string, updated: GeneratedClip): void {
       cropVideoUrl: rendered.cropVideoUrl + cacheBuster,
       blurVideoUrl: rendered.blurVideoUrl + cacheBuster,
       thumbnailUrl: rendered.thumbnailUrl + cacheBuster,
-      ...(rendered.finalVideoUrl ? { finalVideoUrl: rendered.finalVideoUrl + cacheBuster } : {})
+      ...(rendered.finalVideoUrl ? { finalVideoUrl: rendered.finalVideoUrl + cacheBuster } : {}),
+      ...(rendered.previewUrl ? { previewUrl: rendered.previewUrl + cacheBuster } : {})
     }
   };
   state = { ...state, output: { ...state.output, clips: newClips } };
@@ -469,62 +556,87 @@ function fillTimelineHtml(candidate: ClipCandidate): string {
       </div>
       <div class="fill-controls">
         <button type="button" class="split-btn" data-clip-id="${candidate.id}">Split at playhead</button>
-        <span class="fill-hint">Default close-up crop · click a block to flip to blur-pad · Download to export</span>
+        <span class="fill-hint">Click to flip fill mode · Drag to seek · Download to export</span>
       </div>
     </div>
   `;
 }
+
+// ---------------------------------------------------------------------------
+// Fill-timeline wiring: video sync, buffered preview, draggable playhead
+// ---------------------------------------------------------------------------
 
 function wireFillTimelines(): void {
   document.querySelectorAll<HTMLElement>(".clip-card").forEach((card) => {
     const crop = card.querySelector<HTMLVideoElement>("video.crop");
     const blur = card.querySelector<HTMLVideoElement>("video.blur");
     const timeline = card.querySelector<HTMLElement>(".fill-timeline");
-    if (!crop || !blur || !timeline) return;
+    const container = card.querySelector<HTMLElement>(".video-container");
+    if (!crop || !blur || !timeline || !container) return;
 
     const duration = Number(timeline.dataset["duration"] ?? "0");
+    // bufferBefore: how many seconds into the crop/preview file the actual clip starts.
+    // 0 when using the full crop video (no preview available).
+    const bufferBefore = Number(container.dataset["bufferBefore"] ?? "0");
+    const previewStart = Number(container.dataset["previewStart"] ?? "0");
 
-    // Instant preview: both full renders are loaded; we toggle which is visible per the
-    // segment under the playhead. Both videos carry native controls, and whichever the user
-    // touches drives the other so the visible (interactive) one is always in control. The
-    // handlers are idempotent — each only acts when the target is out of sync — so the
-    // paired play/pause/seek events can't feed back into an infinite loop. Crop stays the
-    // audio master (blur is muted) and drives the preview refresh.
     let rafHandle = 0;
     const refresh = (): void => {
-      updatePlayhead(card, crop.currentTime, duration);
+      const clipRelTime = Math.max(0, crop.currentTime - bufferBefore);
+      updatePlayhead(card, clipRelTime, duration);
       updatePreview(card);
     };
-    // Both videos play in lockstep from the same start, so they stay aligned without
-    // per-frame seeking (seeking a playing video forces a re-buffer / spinner). Drift is
-    // only corrected on discrete user seeks, handled in link().
+    // Both videos play from a shared start time; we only correct drift on explicit seeks.
     const loop = (): void => {
       refresh();
       if (!crop.paused && !crop.ended) {
         rafHandle = requestAnimationFrame(loop);
       }
     };
-    const link = (from: HTMLVideoElement, to: HTMLVideoElement): void => {
-      from.addEventListener("play", () => {
-        if (to.paused) void to.play().catch(() => undefined);
-      });
-      from.addEventListener("pause", () => {
-        if (!to.paused) to.pause();
-      });
-      from.addEventListener("seeking", () => {
-        if (Math.abs(to.currentTime - from.currentTime) > 0.05) to.currentTime = from.currentTime;
-      });
-      from.addEventListener("ratechange", () => {
-        if (to.playbackRate !== from.playbackRate) to.playbackRate = from.playbackRate;
-      });
-      from.addEventListener("timeupdate", refresh);
-      from.addEventListener("seeked", refresh);
-      from.addEventListener("loadeddata", refresh);
-    };
-    link(crop, blur);
-    link(blur, crop);
 
-    // Crop is the audio master; keep the blur layer silent even if its controls are used.
+    // crop → blur sync with buffer offset compensation
+    crop.addEventListener("play", () => {
+      if (blur.paused) void blur.play().catch(() => undefined);
+    });
+    crop.addEventListener("pause", () => {
+      if (!blur.paused) blur.pause();
+    });
+    crop.addEventListener("seeking", () => {
+      const blurTarget = Math.max(0, crop.currentTime - bufferBefore);
+      if (Math.abs(blur.currentTime - blurTarget) > 0.05) blur.currentTime = blurTarget;
+    });
+    crop.addEventListener("ratechange", () => {
+      if (blur.playbackRate !== crop.playbackRate) blur.playbackRate = crop.playbackRate;
+    });
+    crop.addEventListener("timeupdate", refresh);
+    crop.addEventListener("seeked", refresh);
+    crop.addEventListener("loadeddata", () => {
+      // Seek past the leading buffer so playback begins at the clip start.
+      if (bufferBefore > 0 && crop.currentTime < bufferBefore) {
+        crop.currentTime = bufferBefore;
+      }
+      refresh();
+    });
+
+    // blur → crop sync with buffer offset compensation
+    blur.addEventListener("play", () => {
+      if (crop.paused) void crop.play().catch(() => undefined);
+    });
+    blur.addEventListener("pause", () => {
+      if (!crop.paused) crop.pause();
+    });
+    blur.addEventListener("seeking", () => {
+      const cropTarget = blur.currentTime + bufferBefore;
+      if (Math.abs(crop.currentTime - cropTarget) > 0.05) crop.currentTime = cropTarget;
+    });
+    blur.addEventListener("ratechange", () => {
+      if (crop.playbackRate !== blur.playbackRate) crop.playbackRate = blur.playbackRate;
+    });
+    blur.addEventListener("timeupdate", refresh);
+    blur.addEventListener("seeked", refresh);
+    blur.addEventListener("loadeddata", refresh);
+
+    // Crop is the audio master; keep the blur layer silent.
     blur.addEventListener("volumechange", () => {
       if (!blur.muted) blur.muted = true;
     });
@@ -536,8 +648,25 @@ function wireFillTimelines(): void {
     crop.addEventListener("pause", () => {
       cancelAnimationFrame(rafHandle);
     });
-    refresh();
 
+    // Quick-seek when timestamp inputs change — if the new time is within the buffered
+    // preview window, show it instantly without waiting for a re-render.
+    const startInput = card.querySelector<HTMLInputElement>('input[name="startSeconds"]');
+    const endInput = card.querySelector<HTMLInputElement>('input[name="endSeconds"]');
+    startInput?.addEventListener("input", () => {
+      const newStart = parseFloat(startInput.value);
+      if (!isNaN(newStart)) {
+        crop.currentTime = Math.max(0, newStart - previewStart);
+      }
+    });
+    endInput?.addEventListener("input", () => {
+      const newEnd = parseFloat(endInput.value);
+      if (!isNaN(newEnd)) {
+        crop.currentTime = Math.max(0, newEnd - previewStart);
+      }
+    });
+
+    refresh();
     wireTimelineControls(card);
   });
 }
@@ -547,7 +676,9 @@ function wireTimelineControls(card: HTMLElement): void {
   if (!timeline) return;
   const clipId = timeline.dataset["clipId"];
   if (!clipId) return;
+  const duration = Number(timeline.dataset["duration"] ?? "0");
 
+  // Segment click-to-toggle for keyboard accessibility (mouse handled via pointer capture below)
   timeline.querySelectorAll<HTMLButtonElement>(".fill-segment").forEach((block) => {
     block.addEventListener("click", () => {
       toggleSegment(clipId, Number(block.dataset["segIndex"]));
@@ -555,6 +686,7 @@ function wireTimelineControls(card: HTMLElement): void {
     });
   });
 
+  // Breakpoint removal
   timeline.querySelectorAll<HTMLButtonElement>(".breakpoint").forEach((handle) => {
     handle.addEventListener("click", () => {
       removeBoundary(clipId, Number(handle.dataset["boundaryIndex"]));
@@ -562,10 +694,71 @@ function wireTimelineControls(card: HTMLElement): void {
     });
   });
 
+  // Split at playhead (use clip-relative time, not raw crop.currentTime)
   timeline.querySelector<HTMLButtonElement>(".split-btn")?.addEventListener("click", () => {
     const crop = card.querySelector<HTMLVideoElement>("video.crop");
-    splitAt(clipId, crop ? crop.currentTime : 0);
+    const container = card.querySelector<HTMLElement>(".video-container");
+    const bufferBefore = Number(container?.dataset["bufferBefore"] ?? "0");
+    splitAt(clipId, crop ? Math.max(0, crop.currentTime - bufferBefore) : 0);
     redrawTimeline(card, clipId);
+  });
+
+  // Drag-to-seek on the fill track. Pointer capture routes all pointer events to the
+  // track after pointerdown so dragging outside the track still updates the playhead.
+  // Short movements (≤4px) are treated as clicks and toggle the segment under the cursor
+  // (matching what the keyboard click handlers above do).
+  const track = timeline.querySelector<HTMLElement>(".fill-track");
+  const crop = card.querySelector<HTMLVideoElement>("video.crop");
+  const container = card.querySelector<HTMLElement>(".video-container");
+  if (!track) return;
+
+  let dragStartX = 0;
+  let hasMoved = false;
+
+  track.addEventListener("pointerdown", (e) => {
+    // Let breakpoint buttons handle their own pointer events.
+    if ((e.target as HTMLElement).classList.contains("breakpoint")) return;
+    dragStartX = e.clientX;
+    hasMoved = false;
+    track.setPointerCapture(e.pointerId);
+  });
+
+  track.addEventListener("pointermove", (e) => {
+    if (!track.hasPointerCapture(e.pointerId)) return;
+    if (Math.abs(e.clientX - dragStartX) > 4) hasMoved = true;
+    if (!hasMoved) return;
+
+    const rect = track.getBoundingClientRect();
+    const pct = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+    const clipRelativeTime = pct * duration;
+    const bufferBefore = Number(container?.dataset["bufferBefore"] ?? "0");
+
+    track.style.cursor = "grabbing";
+    if (crop) crop.currentTime = bufferBefore + clipRelativeTime;
+    updatePlayhead(card, clipRelativeTime, duration);
+  });
+
+  track.addEventListener("pointerup", (e) => {
+    if (!track.hasPointerCapture(e.pointerId)) return;
+    track.releasePointerCapture(e.pointerId);
+    track.style.cursor = "";
+
+    if (!hasMoved) {
+      // Short click on track that didn't land on a segment button: toggle by position.
+      // (Clicks on segment buttons are handled by the button's own click handler above.)
+      const rect = track.getBoundingClientRect();
+      const pct = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+      const clickTime = pct * duration;
+      const segments = fillEdits.get(clipId) ?? [];
+      const segIndex = segments.findIndex(
+        (seg) => clickTime >= seg.startSeconds && clickTime < seg.endSeconds
+      );
+      if (segIndex >= 0) {
+        toggleSegment(clipId, segIndex);
+        redrawTimeline(card, clipId);
+      }
+    }
+    hasMoved = false;
   });
 }
 
@@ -576,17 +769,18 @@ function redrawTimeline(card: HTMLElement, clipId: string): void {
   timeline.outerHTML = fillTimelineHtml(candidate);
   wireTimelineControls(card);
   const crop = card.querySelector<HTMLVideoElement>("video.crop");
+  const container = card.querySelector<HTMLElement>(".video-container");
+  const bufferBefore = Number(container?.dataset["bufferBefore"] ?? "0");
   if (crop) {
-    updatePlayhead(card, crop.currentTime, clipDuration(candidate));
+    updatePlayhead(card, Math.max(0, crop.currentTime - bufferBefore), clipDuration(candidate));
   }
-  // Reflect the edit in the live preview at the current playhead position.
   updatePreview(card);
 }
 
-function updatePlayhead(card: HTMLElement, currentTime: number, duration: number): void {
+function updatePlayhead(card: HTMLElement, clipRelativeTime: number, duration: number): void {
   const playhead = card.querySelector<HTMLElement>(".playhead");
   if (!playhead || duration <= 0) return;
-  const pct = clamp((currentTime / duration) * 100, 0, 100);
+  const pct = clamp((clipRelativeTime / duration) * 100, 0, 100);
   playhead.style.left = `${pct.toFixed(4)}%`;
 }
 
@@ -609,8 +803,10 @@ function updatePreview(card: HTMLElement): void {
   const clipId = container?.dataset["clipId"];
   if (!container || !crop || !clipId) return;
 
+  const bufferBefore = Number(container.dataset["bufferBefore"] ?? "0");
+  const clipRelativeTime = Math.max(0, crop.currentTime - bufferBefore);
   const segments = fillEdits.get(clipId) ?? [];
-  container.classList.toggle("show-blur", modeAt(segments, crop.currentTime) === "blur-pad");
+  container.classList.toggle("show-blur", modeAt(segments, clipRelativeTime) === "blur-pad");
 }
 
 function toggleSegment(clipId: string, index: number): void {
@@ -659,6 +855,10 @@ function removeBoundary(clipId: string, boundaryIndex: number): void {
 function findCandidate(clipId: string): ClipCandidate | undefined {
   return state.output?.clips.find((clip) => clip.candidate.id === clipId)?.candidate;
 }
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

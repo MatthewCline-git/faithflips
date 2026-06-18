@@ -82,7 +82,7 @@ h2 {
   border: 1px solid #dad8cf;
   border-radius: 8px;
   box-shadow: 0 12px 32px rgb(36 36 31 / 8%);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   padding: 18px;
 }
 
@@ -96,6 +96,30 @@ h2 {
   display: grid;
   gap: 10px;
   grid-template-columns: 1fr auto;
+}
+
+.form-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.form-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  margin: 0;
+  color: #5d675f;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.clip-count-input {
+  width: 64px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
 }
 
 input {
@@ -124,6 +148,60 @@ button:disabled {
   color: #a3362f;
   font-weight: 700;
   margin: 10px 0 0;
+}
+
+/* Progress bar */
+.progress-panel {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-track {
+  height: 6px;
+  background: #e9ece6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #264936;
+  border-radius: 999px;
+  transition: width 1.2s ease-out;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 30%) 50%, transparent 100%);
+  animation: shimmer 1.8s infinite;
+  transform: translateX(-100%);
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(200%);
+  }
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+
+.progress-caption {
+  color: #5d675f;
+  font-weight: 700;
+}
+
+.progress-pct {
+  color: #5d675f;
 }
 
 .empty-review,
@@ -244,6 +322,11 @@ button:disabled {
   overflow: hidden;
   background: #e9ece6;
   user-select: none;
+  cursor: grab;
+}
+
+.fill-track:active {
+  cursor: grabbing;
 }
 
 .fill-segment {
