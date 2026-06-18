@@ -10,6 +10,7 @@ import {
   type ProcessingJobEvent,
   type Result,
   type Sermon,
+  type SubmissionAccepted,
   type SubmitSermonInput
 } from "@faithflips/core";
 import {
@@ -32,14 +33,6 @@ import {
   createYtDlpTranscriptionProvider
 } from "./local-dev-runtime.js";
 import { createOpenAiClipSelectionProvider } from "./openai-clip-selector.js";
-
-export type SubmissionAccepted = {
-  readonly sermonId: string;
-  readonly jobId: string;
-  readonly status: ProcessingJob["status"];
-  readonly youtubeContentId: string;
-  readonly runNumber: number;
-};
 
 export type ProcessingServiceError =
   | {

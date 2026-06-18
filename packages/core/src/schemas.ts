@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { processingJobStatusSchema } from "./processing-job.js";
 
 export const clipCategorySchema = z.enum([
   "invitation",
@@ -25,6 +26,16 @@ export const submitSermonSchema = z.object({
 });
 
 export type SubmitSermonInput = z.infer<typeof submitSermonSchema>;
+
+export const submissionAcceptedSchema = z.object({
+  sermonId: z.string().min(1),
+  jobId: z.string().min(1),
+  status: processingJobStatusSchema,
+  youtubeContentId: z.string().min(1),
+  runNumber: z.number().int().positive()
+});
+
+export type SubmissionAccepted = z.infer<typeof submissionAcceptedSchema>;
 
 export const transcriptSegmentSchema = z
   .object({

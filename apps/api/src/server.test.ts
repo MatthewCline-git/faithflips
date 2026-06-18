@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ok } from "@faithflips/core";
+import { ok, submissionAcceptedSchema } from "@faithflips/core";
 import type { SourceMediaClient, TranscriptionProvider } from "@faithflips/ingestion";
 import type { ClipSelectionModelProvider } from "@faithflips/model";
 import type { VideoRenderer } from "@faithflips/rendering";
@@ -7,14 +7,6 @@ import { z } from "zod";
 import { createMemoryJobStore } from "./job-store.js";
 import { createProcessingService } from "./processing-service.js";
 import { createApiResponse } from "./server.js";
-
-const submissionAcceptedSchema = z.object({
-  sermonId: z.string().min(1),
-  jobId: z.string().min(1),
-  status: z.enum(["queued", "completed"]),
-  youtubeContentId: z.string().min(1),
-  runNumber: z.number().int().positive()
-});
 
 const jobRecordSchema = z.object({
   sermon: z.object({ sourceUrl: z.string(), title: z.string() }),

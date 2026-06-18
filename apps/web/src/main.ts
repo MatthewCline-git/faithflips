@@ -1,5 +1,11 @@
-import { submitSermonSchema } from "@faithflips/core";
-import type { GeneratedClip, ProcessingJob, ProcessingJobStatus, Sermon } from "@faithflips/core";
+import { submissionAcceptedSchema, submitSermonSchema } from "@faithflips/core";
+import type {
+  GeneratedClip,
+  ProcessingJob,
+  ProcessingJobStatus,
+  Sermon,
+  SubmissionAccepted
+} from "@faithflips/core";
 import "./styles.css";
 
 const apiUrl = import.meta.env["VITE_API_URL"] ?? "http://localhost:4000";
@@ -26,14 +32,6 @@ type ViewState =
       readonly output?: WorkflowOutput;
       readonly error?: string;
     };
-
-type SubmissionAccepted = {
-  readonly sermonId: string;
-  readonly jobId: string;
-  readonly status: ProcessingJob["status"];
-  readonly youtubeContentId: string;
-  readonly runNumber: number;
-};
 
 type WorkflowOutput = {
   readonly sermon: Sermon;
@@ -424,7 +422,15 @@ async function submitSermon(event: Event): Promise<void> {
     return;
   }
 
-  const accepted = (await response.json()) as SubmissionAccepted;
+  const accepted = parseSubmissionAccepted(await response.json());
+  if (!accepted) {
+    state = withCurrentOutput({
+      status: "idle",
+      error: "The API returned an outdated response. Restart the API server and try again."
+    });
+    render();
+    return;
+  }
   setRunRoute(accepted.youtubeContentId, accepted.runNumber);
   if (accepted.status !== "queued") {
     const cached = await fetchRun(accepted.youtubeContentId, accepted.runNumber);
@@ -479,6 +485,11 @@ async function fetchRun(
   return response.ok ? ((await response.json()) as WorkflowOutput) : undefined;
 }
 
+function parseSubmissionAccepted(value: unknown): SubmissionAccepted | undefined {
+  const parsed = submissionAcceptedSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
 async function handleRegenerateRun(event: Event): Promise<void> {
   const btn = event.currentTarget as HTMLButtonElement;
   const youtubeContentId = btn.dataset["youtubeContentId"];
@@ -496,7 +507,10 @@ async function handleRegenerateRun(event: Event): Promise<void> {
       throw new Error("Run creation failed");
     }
 
-    const accepted = (await response.json()) as SubmissionAccepted;
+    const accepted = parseSubmissionAccepted(await response.json());
+    if (!accepted) {
+      throw new Error("Run creation response was missing route fields");
+    }
     setRunRoute(accepted.youtubeContentId, accepted.runNumber);
     state = { status: "polling" };
     render();
@@ -1152,6 +1166,9 @@ function currentRunRoute(): {
 }
 
 function setRunRoute(youtubeContentId: string, runNumber: number): void {
+  if (!youtubeContentId || !Number.isInteger(runNumber) || runNumber <= 0) {
+    return;
+  }
   const url = new URL(window.location.href);
   url.searchParams.set("video", youtubeContentId);
   url.searchParams.set("run", String(runNumber));

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { clipCandidateSchema, submitSermonSchema, transcriptSegmentSchema } from "./schemas.js";
+import {
+  clipCandidateSchema,
+  submissionAcceptedSchema,
+  submitSermonSchema,
+  transcriptSegmentSchema
+} from "./schemas.js";
 
 describe("submitSermonSchema", () => {
   it("accepts YouTube watch URLs", () => {
@@ -13,6 +18,36 @@ describe("submitSermonSchema", () => {
 
   it("rejects non-YouTube URLs", () => {
     expect(() => submitSermonSchema.parse({ sourceUrl: "https://example.com/sermon" })).toThrow();
+  });
+});
+
+describe("submissionAcceptedSchema", () => {
+  it("requires stable route fields for accepted submissions", () => {
+    expect(
+      submissionAcceptedSchema.parse({
+        sermonId: "sermon_abc123_run_1",
+        jobId: "job_abc123_run_1",
+        status: "queued",
+        youtubeContentId: "abc123",
+        runNumber: 1
+      })
+    ).toEqual({
+      sermonId: "sermon_abc123_run_1",
+      jobId: "job_abc123_run_1",
+      status: "queued",
+      youtubeContentId: "abc123",
+      runNumber: 1
+    });
+  });
+
+  it("rejects legacy accepted responses without run route fields", () => {
+    expect(() =>
+      submissionAcceptedSchema.parse({
+        sermonId: "sermon_abc123",
+        jobId: "job_abc123",
+        status: "queued"
+      })
+    ).toThrow();
   });
 });
 
