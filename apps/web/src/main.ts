@@ -263,16 +263,22 @@ function renderEmptyState(): string {
 }
 
 function renderReview(output: WorkflowOutput): string {
+  const jobSummaryHtml =
+    output.job.status === "completed"
+      ? ""
+      : `
+      <div>
+        <span class="label">Job</span>
+        <strong>${escapeHtml(output.job.id)}</strong>
+      </div>`;
+
   return `
     <section class="job-summary">
       <div>
         <span class="label">Sermon</span>
         <strong>${escapeHtml(output.sermon.title)}</strong>
       </div>
-      <div>
-        <span class="label">Job</span>
-        <strong>${escapeHtml(output.job.id)}</strong>
-      </div>
+      ${jobSummaryHtml}
       <div>
         <span class="label">Clips</span>
         <strong>${String(output.clips.length)}</strong>
@@ -284,24 +290,25 @@ function renderReview(output: WorkflowOutput): string {
         output.clips.length === 0
           ? `<article class="clip-card"><div class="clip-body"><h2>${output.job.status === "failed" ? "Job failed" : "Processing clips"}</h2><p class="hook">${escapeHtml(output.job.failureReason ?? `Current status: ${output.job.status}`)}</p></div></article>`
           : output.clips
-              .map(
-                ({ candidate, renderedClip }, index) => {
-                  // Use the buffered preview for the crop video when available so small
-                  // timestamp adjustments can be previewed instantly without re-rendering.
-                  const previewStartSeconds = renderedClip.previewStartSeconds ?? candidate.startSeconds;
-                  const previewUrlAttribute = renderedClip.previewUrl
-                    ? ` data-preview-url="${escapeHtml(renderedClip.previewUrl)}"`
-                    : "";
+              .map(({ candidate, renderedClip }, index) => {
+                // Use the buffered preview for the crop video when available so small
+                // timestamp adjustments can be previewed instantly without re-rendering.
+                const previewStartSeconds =
+                  renderedClip.previewStartSeconds ?? candidate.startSeconds;
+                const previewUrlAttribute = renderedClip.previewUrl
+                  ? ` data-preview-url="${escapeHtml(renderedClip.previewUrl)}"`
+                  : "";
 
-                  return `
-            <article class="clip-card" data-clip-index="${index}">
+                return `
+            <article class="clip-card" data-clip-index="${String(index)}">
               <div class="video-container"
                 data-clip-id="${candidate.id}"
                 data-buffer-before="0"
                 data-clip-start="${String(candidate.startSeconds)}"
                 data-clip-end="${String(candidate.endSeconds)}"
+                data-crop-url="${escapeHtml(renderedClip.cropVideoUrl)}"
                 data-preview-start="${String(previewStartSeconds)}"${previewUrlAttribute}>
-                <video class="clip-video crop" controls preload="auto">
+                <video class="clip-video crop" controls preload="auto" data-active-url="${escapeHtml(renderedClip.cropVideoUrl)}">
                   <source src="${renderedClip.cropVideoUrl}" type="video/mp4">
                 </video>
                 <video class="clip-video blur" controls muted preload="auto">
@@ -316,13 +323,13 @@ function renderReview(output: WorkflowOutput): string {
                 <div class="timestamp-controls">
                   <label>
                     Start
-                    <input type="number" class="timestamp-input" name="startSeconds"
-                           value="${candidate.startSeconds}" step="0.1" min="0">
+                    <input type="text" class="timestamp-input" name="startSeconds"
+                           value="${formatTime(candidate.startSeconds)}" inputmode="decimal">
                   </label>
                   <label>
                     End
-                    <input type="number" class="timestamp-input" name="endSeconds"
-                           value="${candidate.endSeconds}" step="0.1" min="0">
+                    <input type="text" class="timestamp-input" name="endSeconds"
+                           value="${formatTime(candidate.endSeconds)}" inputmode="decimal">
                   </label>
                   <button type="button" class="rerender-btn" data-clip-id="${candidate.id}">
                     Re-render
@@ -334,8 +341,7 @@ function renderReview(output: WorkflowOutput): string {
               </div>
             </article>
           `;
-                }
-              )
+              })
               .join("")
       }
     </section>
@@ -358,7 +364,9 @@ async function submitSermon(event: Event): Promise<void> {
   const sourceUrl = typeof sourceUrlEntry === "string" ? sourceUrlEntry : "";
   const clipCountEntry = formData.get("clipCount");
   const clipCount =
-    typeof clipCountEntry === "string" ? Math.max(1, Math.min(12, parseInt(clipCountEntry, 10))) : 6;
+    typeof clipCountEntry === "string"
+      ? Math.max(1, Math.min(12, parseInt(clipCountEntry, 10)))
+      : 6;
   const parsed = submitSermonSchema.safeParse({ sourceUrl, clipCount });
   if (!parsed.success) {
     state = withCurrentOutput({ status: "idle", error: "Enter a valid YouTube URL." });
@@ -487,9 +495,9 @@ function readTrimInputs(
   const startInput = card.querySelector<HTMLInputElement>('input[name="startSeconds"]');
   const endInput = card.querySelector<HTMLInputElement>('input[name="endSeconds"]');
   if (!startInput || !endInput) return undefined;
-  const startSeconds = parseFloat(startInput.value);
-  const endSeconds = parseFloat(endInput.value);
-  if (isNaN(startSeconds) || isNaN(endSeconds) || startSeconds >= endSeconds) {
+  const startSeconds = parseTimestampInput(startInput.value);
+  const endSeconds = parseTimestampInput(endInput.value);
+  if (startSeconds === undefined || endSeconds === undefined || startSeconds >= endSeconds) {
     return undefined;
   }
   return { startSeconds, endSeconds };
@@ -625,10 +633,13 @@ function fillTimelineHtml(candidate: ClipCandidate): string {
 
   return `
     <div class="fill-timeline" data-clip-id="${candidate.id}" data-duration="${String(duration)}">
-      <div class="fill-track">
-        ${blocks}
-        <div class="playhead" style="left:0%"></div>
-        ${handles}
+      <div class="fill-track-shell">
+        <div class="fill-track">
+          ${blocks}
+          <div class="playhead" style="left:0%"></div>
+          ${handles}
+        </div>
+        <button type="button" class="playhead-handle" style="left:0%" title="Drag playhead"></button>
       </div>
       <div class="fill-controls">
         <button type="button" class="split-btn" data-clip-id="${candidate.id}">Split at playhead</button>
@@ -654,17 +665,27 @@ function wireFillTimelines(): void {
     const clipStart = Number(container.dataset["clipStart"] ?? "0");
     const clipEnd = Number(container.dataset["clipEnd"] ?? "0");
     const previewStart = Number(container.dataset["previewStart"] ?? String(clipStart));
+    const cropUrl = container.dataset["cropUrl"];
     const previewUrl = container.dataset["previewUrl"];
     const getBufferBefore = (): number => Number(container.dataset["bufferBefore"] ?? "0");
     const seekToSermonTime = (sermonTime: number): void => {
       const needsPreview = sermonTime < clipStart || sermonTime > clipEnd;
-      if (needsPreview && previewUrl && crop.currentSrc !== previewUrl) {
-        container.dataset["bufferBefore"] = String(Math.max(0, clipStart - previewStart));
-        crop.src = previewUrl;
+      const targetUrl = needsPreview && previewUrl ? previewUrl : cropUrl;
+      const targetBufferBefore =
+        needsPreview && previewUrl ? Math.max(0, clipStart - previewStart) : 0;
+      const targetCurrentTime =
+        targetBufferBefore > 0
+          ? Math.max(0, sermonTime - previewStart)
+          : Math.max(0, sermonTime - clipStart);
+
+      if (targetUrl && crop.dataset["activeUrl"] !== targetUrl) {
+        container.dataset["bufferBefore"] = String(targetBufferBefore);
+        crop.dataset["activeUrl"] = targetUrl;
+        crop.src = targetUrl;
         crop.addEventListener(
           "loadedmetadata",
           () => {
-            crop.currentTime = Math.max(0, sermonTime - previewStart);
+            crop.currentTime = targetCurrentTime;
           },
           { once: true }
         );
@@ -672,17 +693,22 @@ function wireFillTimelines(): void {
         return;
       }
 
-      const bufferBefore = getBufferBefore();
-      crop.currentTime =
-        bufferBefore > 0
-          ? Math.max(0, sermonTime - previewStart)
-          : Math.max(0, sermonTime - clipStart);
+      container.dataset["bufferBefore"] = String(targetBufferBefore);
+      crop.currentTime = targetCurrentTime;
     };
 
     let rafHandle = 0;
     const refresh = (): void => {
       const bufferBefore = getBufferBefore();
       const clipRelTime = Math.max(0, crop.currentTime - bufferBefore);
+      const trim = readTrimInputs(card);
+      const selectedEnd = trim?.endSeconds ?? clipEnd;
+      const selectedDuration = Math.max(0, selectedEnd - clipStart);
+      if (selectedDuration > 0 && clipRelTime > selectedDuration + 0.05) {
+        crop.currentTime = bufferBefore + selectedDuration;
+        crop.pause();
+        return;
+      }
       updatePlayhead(card, clipRelTime, duration);
       updatePreview(card);
     };
@@ -750,14 +776,14 @@ function wireFillTimelines(): void {
     const startInput = card.querySelector<HTMLInputElement>('input[name="startSeconds"]');
     const endInput = card.querySelector<HTMLInputElement>('input[name="endSeconds"]');
     startInput?.addEventListener("input", () => {
-      const newStart = parseFloat(startInput.value);
-      if (!isNaN(newStart)) {
+      const newStart = parseTimestampInput(startInput.value);
+      if (newStart !== undefined) {
         seekToSermonTime(newStart);
       }
     });
     endInput?.addEventListener("input", () => {
-      const newEnd = parseFloat(endInput.value);
-      if (!isNaN(newEnd)) {
+      const newEnd = parseTimestampInput(endInput.value);
+      if (newEnd !== undefined) {
         seekToSermonTime(newEnd);
       }
     });
@@ -804,12 +830,23 @@ function wireTimelineControls(card: HTMLElement): void {
   // Short movements (≤4px) are treated as clicks and toggle the segment under the cursor
   // (matching what the keyboard click handlers above do).
   const track = timeline.querySelector<HTMLElement>(".fill-track");
+  const playheadHandle = timeline.querySelector<HTMLButtonElement>(".playhead-handle");
   const crop = card.querySelector<HTMLVideoElement>("video.crop");
   const container = card.querySelector<HTMLElement>(".video-container");
   if (!track) return;
 
   let dragStartX = 0;
   let hasMoved = false;
+
+  const seekFromPointer = (clientX: number): void => {
+    const rect = track.getBoundingClientRect();
+    const pct = clamp((clientX - rect.left) / rect.width, 0, 1);
+    const clipRelativeTime = pct * duration;
+    const bufferBefore = Number(container?.dataset["bufferBefore"] ?? "0");
+
+    if (crop) crop.currentTime = bufferBefore + clipRelativeTime;
+    updatePlayhead(card, clipRelativeTime, duration);
+  };
 
   track.addEventListener("pointerdown", (e) => {
     // Let breakpoint buttons handle their own pointer events.
@@ -824,14 +861,8 @@ function wireTimelineControls(card: HTMLElement): void {
     if (Math.abs(e.clientX - dragStartX) > 4) hasMoved = true;
     if (!hasMoved) return;
 
-    const rect = track.getBoundingClientRect();
-    const pct = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-    const clipRelativeTime = pct * duration;
-    const bufferBefore = Number(container?.dataset["bufferBefore"] ?? "0");
-
     track.style.cursor = "grabbing";
-    if (crop) crop.currentTime = bufferBefore + clipRelativeTime;
-    updatePlayhead(card, clipRelativeTime, duration);
+    seekFromPointer(e.clientX);
   });
 
   track.addEventListener("pointerup", (e) => {
@@ -856,6 +887,24 @@ function wireTimelineControls(card: HTMLElement): void {
     }
     hasMoved = false;
   });
+
+  playheadHandle?.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    dragStartX = e.clientX;
+    hasMoved = true;
+    playheadHandle.setPointerCapture(e.pointerId);
+  });
+
+  playheadHandle?.addEventListener("pointermove", (e) => {
+    if (!playheadHandle.hasPointerCapture(e.pointerId)) return;
+    seekFromPointer(e.clientX);
+  });
+
+  playheadHandle?.addEventListener("pointerup", (e) => {
+    if (!playheadHandle.hasPointerCapture(e.pointerId)) return;
+    playheadHandle.releasePointerCapture(e.pointerId);
+    hasMoved = false;
+  });
 }
 
 function redrawTimeline(card: HTMLElement, clipId: string): void {
@@ -875,9 +924,11 @@ function redrawTimeline(card: HTMLElement, clipId: string): void {
 
 function updatePlayhead(card: HTMLElement, clipRelativeTime: number, duration: number): void {
   const playhead = card.querySelector<HTMLElement>(".playhead");
-  if (!playhead || duration <= 0) return;
+  const playheadHandle = card.querySelector<HTMLElement>(".playhead-handle");
+  if (!playhead || !playheadHandle || duration <= 0) return;
   const pct = clamp((clipRelativeTime / duration) * 100, 0, 100);
   playhead.style.left = `${pct.toFixed(4)}%`;
+  playheadHandle.style.left = `${pct.toFixed(4)}%`;
 }
 
 // ---------------------------------------------------------------------------
@@ -968,6 +1019,33 @@ function formatTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.floor(totalSeconds % 60);
   return `${String(minutes)}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function parseTimestampInput(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const parts = trimmed.split(":");
+  if (parts.length === 1) {
+    const seconds = Number(parts[0]);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+  }
+
+  if (parts.length !== 2) return undefined;
+
+  const minutes = Number(parts[0]);
+  const seconds = Number(parts[1]);
+  if (
+    !Number.isInteger(minutes) ||
+    !Number.isFinite(seconds) ||
+    minutes < 0 ||
+    seconds < 0 ||
+    seconds >= 60
+  ) {
+    return undefined;
+  }
+
+  return minutes * 60 + seconds;
 }
 
 function escapeHtml(value: string): string {

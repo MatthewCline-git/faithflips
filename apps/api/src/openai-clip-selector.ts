@@ -3,15 +3,13 @@ import {
   err,
   ok,
   type ClipCandidate,
-  type Result,
   type Transcript
 } from "@faithflips/core";
 import {
   clipSelectionModelResponseSchema,
   hashModelInput,
   type ClipSelectionModelInput,
-  type ClipSelectionModelProvider,
-  type ModelProviderError
+  type ClipSelectionModelProvider
 } from "@faithflips/model";
 import { z } from "zod";
 
@@ -331,7 +329,9 @@ async function fetchChunkCandidates(opts: {
   });
 
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = globalThis.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
 
   let response: Response;
   try {
@@ -431,7 +431,9 @@ async function rankCandidates(opts: {
   });
 
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = globalThis.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
 
   let response: Response;
   try {
@@ -503,7 +505,10 @@ async function rankCandidates(opts: {
   const selected = parsedOutput.data.selected
     .filter((i) => i >= 0 && i < candidates.length)
     .slice(0, desiredCount)
-    .map((i) => candidates[i]!);
+    .flatMap((i) => {
+      const candidate = candidates[i];
+      return candidate ? [candidate] : [];
+    });
 
   logger({
     event: "clip_selection_ranking_complete",
@@ -597,10 +602,7 @@ type OpenAiResponse = {
   }[];
 };
 
-function transcriptText(
-  segments: Transcript["segments"],
-  maxTranscriptChars: number
-): string {
+function transcriptText(segments: Transcript["segments"], maxTranscriptChars: number): string {
   const lines: string[] = [];
   let charCount = 0;
 
@@ -644,7 +646,6 @@ function safeJson(value: string): unknown {
     return undefined;
   }
 }
-
 
 function hashString(value: string): string {
   let hash = 2166136261;

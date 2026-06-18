@@ -145,7 +145,7 @@ export function createProcessingService(input: {
         speaker: "Unknown speaker",
         durationSeconds: 1,
         createdAt,
-        clipCount: submission.clipCount ?? 6
+        clipCount: submission.clipCount
       });
       const job: ProcessingJob = {
         id: `job_${stableId}`,
@@ -223,7 +223,7 @@ export function createProcessingService(input: {
         sermonId: transcriptReady.value.sermon.id,
         transcript: ingestionResult.value.transcript,
         prompt: clipSelectionPromptV1,
-        clipCount: transcriptReady.value.sermon.clipCount ?? 6
+        clipCount: transcriptReady.value.sermon.clipCount
       });
       if (!clipSelection.ok) {
         logger({
@@ -267,8 +267,7 @@ export function createProcessingService(input: {
       });
 
       const renderedClips: GeneratedClip[] = [];
-      for (let i = 0; i < clipSelection.value.output.clips.length; i++) {
-        const candidate = clipSelection.value.output.clips[i]!;
+      for (const [i, candidate] of clipSelection.value.output.clips.entries()) {
         const parsedCandidate = clipCandidateSchema.parse(candidate);
         const clipIndex = i + 1;
 
