@@ -76,7 +76,6 @@ function render(): void {
           <p class="eyebrow">FaithFlips</p>
           <h1>Weekly church clips from a sermon URL</h1>
         </div>
-        <span class="status-pill">${state.output?.job.status ?? "ready"}</span>
       </header>
 
       <form class="submit-panel" id="sermon-form">
@@ -255,7 +254,6 @@ function renderProgressBar(): string {
 function renderEmptyState(): string {
   return `
     <section class="empty-review">
-      <div class="preview-frame"></div>
       <div>
         <h2>Review-ready clips will appear here</h2>
         <p>Submit a sermon URL to run ingestion, clip selection, rendering, and storage through the API workflow.</p>
@@ -332,7 +330,6 @@ function renderReview(output: WorkflowOutput): string {
                 </div>
                 <div class="clip-actions">
                   <button type="button" class="download-btn" data-clip-id="${candidate.id}">Download MP4</button>
-                  <span class="confidence">${String(Math.round(candidate.confidence * 100))}% confidence</span>
                 </div>
               </div>
             </article>

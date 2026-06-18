@@ -67,16 +67,6 @@ h2 {
   line-height: 1.2;
 }
 
-.status-pill {
-  border: 1px solid #b9c0b8;
-  border-radius: 999px;
-  color: #2d4635;
-  flex: 0 0 auto;
-  font-size: 0.9rem;
-  font-weight: 700;
-  padding: 8px 12px;
-}
-
 .submit-panel {
   background: #ffffff;
   border: 1px solid #dad8cf;
@@ -205,19 +195,15 @@ button:disabled {
   color: #5d675f;
 }
 
-.empty-review,
+.empty-review {
+  padding: 28px 0;
+}
+
 .job-summary {
   display: grid;
   gap: 18px;
 }
 
-.empty-review {
-  align-items: center;
-  grid-template-columns: minmax(180px, 260px) 1fr;
-  padding: 28px 0;
-}
-
-.preview-frame,
 .video-tile {
   aspect-ratio: 9 / 16;
   background:
@@ -461,18 +447,13 @@ button:disabled {
 
 .clip-actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
 }
 
 .download-btn {
   padding: 8px 12px;
   font-size: 0.85rem;
-}
-
-.confidence {
-  font-size: 0.8rem;
-  color: #5d675f;
 }
 
 dl {
@@ -501,11 +482,6 @@ a {
     display: block;
   }
 
-  .status-pill {
-    display: inline-block;
-    margin-top: 16px;
-  }
-
   .url-row,
   .job-summary,
   .clip-grid {
@@ -516,8 +492,4 @@ a {
     width: 100%;
   }
 
-  .preview-frame {
-    max-width: 210px;
-    margin-bottom: 18px;
-  }
 }
