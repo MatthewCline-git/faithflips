@@ -29,14 +29,16 @@ describe("submissionAcceptedSchema", () => {
         jobId: "job_abc123_run_1",
         status: "queued",
         youtubeContentId: "abc123",
-        runNumber: 1
+        runNumber: 1,
+        clipCount: 6
       })
     ).toEqual({
       sermonId: "sermon_abc123_run_1",
       jobId: "job_abc123_run_1",
       status: "queued",
       youtubeContentId: "abc123",
-      runNumber: 1
+      runNumber: 1,
+      clipCount: 6
     });
   });
 

@@ -96,7 +96,8 @@ describe("POST /sermons", () => {
       jobId: firstAccepted.jobId,
       status: "completed",
       youtubeContentId: "abc123",
-      runNumber: 1
+      runNumber: 1,
+      clipCount: 6
     });
     expect(selectionCalls).toBe(1);
 

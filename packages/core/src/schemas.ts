@@ -32,7 +32,8 @@ export const submissionAcceptedSchema = z.object({
   jobId: z.string().min(1),
   status: processingJobStatusSchema,
   youtubeContentId: z.string().min(1),
-  runNumber: z.number().int().positive()
+  runNumber: z.number().int().positive(),
+  clipCount: z.number().int().min(1)
 });
 
 export type SubmissionAccepted = z.infer<typeof submissionAcceptedSchema>;

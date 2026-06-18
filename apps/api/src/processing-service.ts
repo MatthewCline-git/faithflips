@@ -676,7 +676,8 @@ function toAccepted(
     jobId: record.job.id,
     status: record.job.status,
     youtubeContentId,
-    runNumber
+    runNumber,
+    clipCount: record.sermon.clipCount
   };
 }
 
