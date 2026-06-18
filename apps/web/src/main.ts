@@ -91,47 +91,50 @@ function render(): void {
 
   appRoot.innerHTML = `
     <section class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">FaithFlips</p>
-          <h1>Weekly church clips from a sermon URL</h1>
-        </div>
-      </header>
+      <div class="hero-entry${state.output ? " compact" : ""}">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">FaithFlips</p>
+            <h1>Weekly church clips from a sermon URL</h1>
+          </div>
+        </header>
 
-      <form class="submit-panel" id="sermon-form">
-        <label for="source-url">Sermon YouTube URL</label>
-        <div class="url-row">
-          <input
-            id="source-url"
-            name="sourceUrl"
-            type="url"
-            placeholder="https://www.youtube.com/watch?v=..."
-            value="${defaultSourceUrl}"
-            required
-          />
-          <button type="submit" ${state.status === "submitting" ? "disabled" : ""}>
-            ${state.status === "idle" ? "Generate Clips" : "Processing"}
-          </button>
-        </div>
-        <div class="form-options">
-          <label for="clip-count">Clips
+        <form class="submit-panel" id="sermon-form">
+          <label for="source-url">Sermon YouTube URL</label>
+          <div class="url-row">
             <input
-              id="clip-count"
-              name="clipCount"
-              type="number"
-              class="clip-count-input"
-              min="1"
-              max="12"
-              value="6"
+              id="source-url"
+              name="sourceUrl"
+              type="url"
+              placeholder="https://www.youtube.com/watch?v=..."
+              value="${defaultSourceUrl}"
+              required
             />
-          </label>
-        </div>
-        ${state.error ? `<p class="error">${state.error}</p>` : ""}
-      </form>
+            <button type="submit" ${state.status === "submitting" ? "disabled" : ""}>
+              ${state.status === "idle" ? "Generate Clips" : "Processing"}
+            </button>
+          </div>
+          <div class="form-options">
+            <label for="clip-count">Clips
+              <input
+                id="clip-count"
+                name="clipCount"
+                type="number"
+                class="clip-count-input"
+                min="1"
+                max="12"
+                value="6"
+              />
+            </label>
+          </div>
+          ${state.error ? `<p class="error">${state.error}</p>` : ""}
+        </form>
 
-      ${renderProgressBar()}
+        ${renderProgressBar()}
+        ${state.output ? "" : renderEmptyState()}
+      </div>
 
-      ${state.output ? renderReview(state.output) : renderEmptyState()}
+      ${state.output ? renderReview(state.output) : ""}
     </section>
   `;
 
