@@ -1,5 +1,9 @@
 import { err } from "@faithflips/core";
-import { clipSelectionPromptV1, clipSelectionPromptV2 } from "@faithflips/prompts";
+import {
+  clipSelectionPromptV1,
+  clipSelectionPromptV2,
+  clipSelectionPromptV3
+} from "@faithflips/prompts";
 import { describe, expect, it } from "vitest";
 import { runClipSelectionEval, runClipSelectionPromptComparison } from "./runner.js";
 import type { EvalFixture } from "./fixture.js";
@@ -17,7 +21,7 @@ describe("clip selection eval runner", () => {
     expect(report.results[0]?.outputMetadata?.promptVersion).toBe("clip-selection-v1");
     expect(report.results[0]?.validationFailures).toEqual([]);
     expect(report.results[0]?.clips).toHaveLength(1);
-    expect(report.results[0]?.scores[0]?.scores).toHaveLength(8);
+    expect(report.results[0]?.scores[0]?.scores).toHaveLength(11);
     expect(report.averageScore).toBeGreaterThan(4);
   });
 
@@ -51,16 +55,17 @@ describe("clip selection eval runner", () => {
   it("compares two prompt versions against the same fixtures", async () => {
     const comparison = await runClipSelectionPromptComparison({
       fixtures: [fixture],
-      prompts: [clipSelectionPromptV1, clipSelectionPromptV2],
+      prompts: [clipSelectionPromptV1, clipSelectionPromptV2, clipSelectionPromptV3],
       now: new Date("2026-01-05T00:00:00.000Z")
     });
 
     expect(comparison.entries.map((entry) => entry.promptVersion)).toEqual([
       "clip-selection-v1",
-      "clip-selection-v2"
+      "clip-selection-v2",
+      "clip-selection-v3"
     ]);
     expect(comparison.bestPromptVersion).toBeTruthy();
-    expect(comparison.reports).toHaveLength(2);
+    expect(comparison.reports).toHaveLength(3);
   });
 });
 

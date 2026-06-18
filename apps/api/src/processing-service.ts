@@ -20,7 +20,7 @@ import {
   type TranscriptionProvider
 } from "@faithflips/ingestion";
 import type { ClipSelectionModelProvider } from "@faithflips/model";
-import { clipSelectionPromptV1 } from "@faithflips/prompts";
+import { clipSelectionPromptV3 } from "@faithflips/prompts";
 import { createFfmpegRenderer, type VideoRenderer } from "@faithflips/rendering";
 import { z } from "zod";
 import type { JobStore, PersistedJobRecord } from "./job-store.js";
@@ -242,12 +242,12 @@ export function createProcessingService(input: {
         sermonId: transcriptReady.value.sermon.id,
         jobId: transcriptReady.value.job.id,
         model: model.model,
-        promptVersion: clipSelectionPromptV1.version
+        promptVersion: clipSelectionPromptV3.version
       });
       const clipSelection = await model.selectClips({
         sermonId: transcriptReady.value.sermon.id,
         transcript: ingestionResult.value.transcript,
-        prompt: clipSelectionPromptV1,
+        prompt: clipSelectionPromptV3,
         clipCount: transcriptReady.value.sermon.clipCount
       });
       if (!clipSelection.ok) {

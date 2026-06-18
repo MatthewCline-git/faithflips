@@ -1,4 +1,8 @@
-import { clipSelectionPromptV1, clipSelectionPromptV2 } from "@faithflips/prompts";
+import {
+  clipSelectionPromptV1,
+  clipSelectionPromptV2,
+  clipSelectionPromptV3
+} from "@faithflips/prompts";
 import { describe, expect, it } from "vitest";
 import {
   createDeterministicClipSelectionProvider,
@@ -52,6 +56,24 @@ describe("deterministic clip selection provider", () => {
     }
     expect(result.value.output.clips[0]?.promptVersion).toBe("clip-selection-v2");
     expect(result.value.output.clips[0]?.id).toContain("focused");
+  });
+
+  it("uses caption-ranked hooks for the v3 prompt", async () => {
+    const provider = createDeterministicClipSelectionProvider();
+
+    const result = await provider.selectClips({
+      sermonId: transcript.sermonId,
+      transcript,
+      prompt: clipSelectionPromptV3
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.output.clips[0]?.promptVersion).toBe("clip-selection-v3");
+    expect(result.value.output.clips[0]?.id).toContain("caption_ranked");
+    expect(result.value.output.clips[0]?.hook).toContain("You");
   });
 });
 

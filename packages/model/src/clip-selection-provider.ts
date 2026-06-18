@@ -178,21 +178,35 @@ function buildCandidate(input: {
   readonly model: string;
 }): ClipCandidate {
   const transcriptText = textForMoment(input.transcript, input.moment);
-  const versionLabel = input.prompt.version === "clip-selection-v2" ? "focused" : "baseline";
+  const profile = promptProfile(input.prompt.version);
 
   return clipCandidateSchema.parse({
-    id: `${input.sermonId}_${versionLabel}_clip_${String(input.index + 1)}`,
+    id: `${input.sermonId}_${profile.idLabel}_clip_${String(input.index + 1)}`,
     sermonId: input.sermonId,
     startSeconds: input.moment.startSeconds,
     endSeconds: input.moment.endSeconds,
-    title: titleForCategory(input.moment.category, input.prompt.version),
-    hook: hookForCategory(input.moment.category, input.prompt.version),
+    title: titleForCategory(input.moment.category, profile.variantIndex),
+    hook: hookForCategory(input.moment.category, profile.variantIndex),
     rationale: `${input.moment.note} Transcript support: ${firstSentence(transcriptText)}`,
-    postCaption: captionForCategory(input.moment.category, input.prompt.version),
-    confidence: input.prompt.version === "clip-selection-v2" ? 0.84 : 0.8,
+    postCaption: captionForCategory(input.moment.category, profile.variantIndex),
+    confidence: profile.confidence,
     promptVersion: input.prompt.version,
     model: input.model
   });
+}
+
+function promptProfile(promptVersion: string): {
+  readonly idLabel: string;
+  readonly variantIndex: 0 | 1 | 2;
+  readonly confidence: number;
+} {
+  if (promptVersion === "clip-selection-v3") {
+    return { idLabel: "caption_ranked", variantIndex: 2, confidence: 0.88 };
+  }
+  if (promptVersion === "clip-selection-v2") {
+    return { idLabel: "focused", variantIndex: 1, confidence: 0.84 };
+  }
+  return { idLabel: "baseline", variantIndex: 0, confidence: 0.8 };
 }
 
 function inferCategory(text: string): ClipCategory {
@@ -219,64 +233,81 @@ function textForMoment(transcript: Transcript, moment: ClipSelectionHint): strin
     .join(" ");
 }
 
-function titleForCategory(category: ClipCategory, promptVersion: string): string {
+function titleForCategory(category: ClipCategory, variantIndex: 0 | 1 | 2): string {
   const titles = {
-    invitation: ["Bring God Your Actual Life", "Respond With Your Real Life"],
-    encouragement: ["Grace Meets The Tired", "Grace For The Tired Week"],
-    teaching: ["Faith Becomes Visible", "Faith You Can Practice"],
-    quote: ["A Sermon Moment Worth Remembering", "A Line To Carry This Week"],
-    recap: ["The Message In One Moment", "The Heart Of The Message"]
+    invitation: ["Bring God Your Actual Life", "Respond With Your Real Life", "Stop Waiting"],
+    encouragement: ["Grace Meets The Tired", "Grace For The Tired Week", "Tired But Met"],
+    teaching: ["Faith Becomes Visible", "Faith You Can Practice", "Faith Needs Feet"],
+    quote: [
+      "A Sermon Moment Worth Remembering",
+      "A Line To Carry This Week",
+      "Text This To Someone"
+    ],
+    recap: ["The Message In One Moment", "The Heart Of The Message", "This Is For You"]
   } as const;
-  return titles[category][promptVersion === "clip-selection-v2" ? 1 : 0];
+  return titles[category][variantIndex];
 }
 
-function hookForCategory(category: ClipCategory, promptVersion: string): string {
+function hookForCategory(category: ClipCategory, variantIndex: 0 | 1 | 2): string {
   const hooks = {
     invitation: [
       "If you have been waiting to respond, today is for you.",
-      "You can bring God your real life today."
+      "You can bring God your real life today.",
+      "You are waiting to feel ready, but God is asking for honest."
     ],
     encouragement: [
       "If this week has worn you down, grace meets you here.",
-      "Grace is not waiting for you to be less tired."
+      "Grace is not waiting for you to be less tired.",
+      "You are not too tired for grace to meet you here."
     ],
     teaching: [
       "Faith becomes visible in what you do next.",
-      "Faith is practiced in ordinary choices."
+      "Faith is practiced in ordinary choices.",
+      "You keep calling it belief, but your next choice will tell the truth."
     ],
-    quote: ["This one sentence can reshape your week.", "Carry this sentence into the week ahead."],
+    quote: [
+      "This one sentence can reshape your week.",
+      "Carry this sentence into the week ahead.",
+      "This is the line someone needs you to send them."
+    ],
     recap: [
       "Here is the heart of this week's message.",
-      "This is the message to remember this week."
+      "This is the message to remember this week.",
+      "You do not need the whole sermon to know this part is for you."
     ]
   } as const;
-  return hooks[category][promptVersion === "clip-selection-v2" ? 1 : 0];
+  return hooks[category][variantIndex];
 }
 
-function captionForCategory(category: ClipCategory, promptVersion: string): string {
+function captionForCategory(category: ClipCategory, variantIndex: 0 | 1 | 2): string {
   const captions = {
     invitation: [
       "You do not have to wait until everything is together to respond to God today.",
-      "Bring your honest life to God today, not a polished version of it."
+      "Bring your honest life to God today, not a polished version of it.",
+      "Stop protecting the version of your life God is trying to heal."
     ],
     encouragement: [
       "Grace meets tired people with mercy, honesty, and real hope for the week ahead.",
-      "For the tired week: grace meets you with mercy and real hope."
+      "For the tired week: grace meets you with mercy and real hope.",
+      "You are tired, but you are not outside the reach of mercy."
     ],
     teaching: [
       "Faith becomes visible in ordinary choices: patience, forgiveness, courage, and prayer.",
-      "Faith becomes visible in ordinary choices, not only big moments."
+      "Faith becomes visible in ordinary choices, not only big moments.",
+      "If faith never reaches your next decision, it is only agreement."
     ],
     quote: [
       "A short sermon moment for anyone carrying this message into the week.",
-      "A short sermon moment to carry into the week."
+      "A short sermon moment to carry into the week.",
+      "This is the kind of line you send before someone gives up."
     ],
     recap: [
       "The heart of the message: receive grace, then practice grace in ordinary life.",
-      "Receive grace, then practice grace in ordinary life this week."
+      "Receive grace, then practice grace in ordinary life this week.",
+      "You are closer to the point than you think. Let this part land."
     ]
   } as const;
-  return captions[category][promptVersion === "clip-selection-v2" ? 1 : 0];
+  return captions[category][variantIndex];
 }
 
 function firstSentence(text: string): string {

@@ -32,6 +32,9 @@ export const evalFixtureResultSchema = z.object({
             "spiritual_substance",
             "emotional_impact",
             "caption_quality",
+            "caption_specificity",
+            "direct_address",
+            "conviction_and_hope",
             "platform_fit",
             "context_safety"
           ]),

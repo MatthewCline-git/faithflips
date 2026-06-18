@@ -529,6 +529,19 @@ function buildChunkPrompt(
 ): string {
   const startMin = Math.round(chunk.startSeconds / 60);
   const endMin = Math.round(chunk.endSeconds / 60);
+  const usesCaptionRanking = input.prompt.version === "clip-selection-v3";
+  const captionInstructions = usesCaptionRanking
+    ? [
+        "",
+        "CAPTION ANGLE SELECTION:",
+        "- Do not summarize the sermon. Identify the psychological angle of the clip.",
+        "- Internally generate these caption angles before choosing the final hook and postCaption: conviction, curiosity, encouragement, challenge, second-person direct address, and direct quote.",
+        "- Prefer specific second-person hooks and direct quotes from the transcript over generic inspirational phrasing.",
+        "- Strong hooks usually create tension before resolution: conviction plus hope.",
+        "- Avoid generic Christian phrases, church bulletin wording, emojis, hashtags, and openers like 'In this sermon' or 'Pastor explains'.",
+        "- Use the first 10 seconds after the clip start to amplify tension that is already present in the opening."
+      ]
+    : [];
 
   return [
     `Find the ${String(clipsPerChunk)} most VIRAL moments from SECTION ${String(chunkIndex + 1)} of ${String(totalChunks)} of this sermon (minutes ${String(startMin)}–${String(endMin)}).`,
@@ -552,6 +565,7 @@ function buildChunkPrompt(
     "- title: 3-5 words, lowercase",
     "- firstWords: First 5-6 words spoken",
     "- lastWords: Last 5-6 words spoken",
+    ...captionInstructions,
     "",
     "DURATION REQUIREMENTS (STRICT):",
     "- Target: 21-34 seconds (TikTok algorithm sweet spot)",
@@ -584,6 +598,9 @@ function buildRankingPrompt(candidates: RawClip[], desiredCount: number): string
     "- Varied topics (don't cluster on the same theme)",
     "- Spread across the sermon timeline",
     "- High standalone value (makes sense without context)",
+    "- Best caption psychology: specific direct address, conviction plus hope, shareability, clarity, and theological faithfulness",
+    "- Strong direct quotes when the pastor already said the memorable line",
+    "- Least likely to read like a sermon summary or generic Christian social copy",
     "",
     `Return the indices (0-based integers, 0–${String(candidates.length - 1)}) of your ${String(desiredCount)} chosen clips.`,
     "",

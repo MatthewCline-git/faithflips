@@ -9,6 +9,9 @@ export const rubricDimensionSchema = z.enum([
   "spiritual_substance",
   "emotional_impact",
   "caption_quality",
+  "caption_specificity",
+  "direct_address",
+  "conviction_and_hope",
   "platform_fit",
   "context_safety"
 ]);
@@ -42,6 +45,9 @@ export function scoreClipCandidate(fixture: EvalFixture, candidate: ClipCandidat
     scoreSpiritualSubstance(candidate, transcriptText),
     scoreEmotionalImpact(candidate, transcriptText),
     scoreCaptionQuality(candidate),
+    scoreCaptionSpecificity(candidate),
+    scoreDirectAddress(candidate),
+    scoreConvictionAndHope(candidate, transcriptText),
     scorePlatformFit(candidate),
     scoreContextSafety(candidate, transcriptText)
   ];
@@ -128,8 +134,7 @@ function scoreEmotionalImpact(candidate: ClipCandidate, transcriptText: string):
 }
 
 function scoreCaptionQuality(candidate: ClipCandidate): RubricScore {
-  const score =
-    candidate.postCaption.length >= 20 && candidate.postCaption.length <= 200 ? 5 : 3;
+  const score = candidate.postCaption.length >= 20 && candidate.postCaption.length <= 200 ? 5 : 3;
   return {
     dimension: "caption_quality",
     score,
@@ -137,6 +142,65 @@ function scoreCaptionQuality(candidate: ClipCandidate): RubricScore {
       score === 5
         ? "Caption length is appropriate for posting."
         : "Caption may need editorial review."
+  };
+}
+
+function scoreCaptionSpecificity(candidate: ClipCandidate): RubricScore {
+  const combined = `${candidate.hook} ${candidate.postCaption}`;
+  const genericPhraseCount = [
+    /\bgod loves you\b/i,
+    /\byou matter\b/i,
+    /\byou are enough\b/i,
+    /\byou can do hard things\b/i,
+    /\bin this sermon\b/i,
+    /\bpastor explains\b/i
+  ].filter((pattern) => pattern.test(combined)).length;
+  const hasConcreteTension =
+    /\bwaiting|tired|choice|decision|protect|carry|bound|freedom|honest|mercy|grace\b/i.test(
+      combined
+    );
+  const score =
+    genericPhraseCount === 0 && hasConcreteTension ? 5 : genericPhraseCount === 0 ? 4 : 2;
+  return {
+    dimension: "caption_specificity",
+    score,
+    reason:
+      score >= 4
+        ? "Caption language is specific and avoids common generic openers."
+        : "Caption relies on generic phrasing that is easy to ignore."
+  };
+}
+
+function scoreDirectAddress(candidate: ClipCandidate): RubricScore {
+  const combined = `${candidate.hook} ${candidate.postCaption}`;
+  const secondPersonMatches = combined.match(/\b(you|your|you're|you've|you'll)\b/gi) ?? [];
+  const score = secondPersonMatches.length >= 2 ? 5 : secondPersonMatches.length === 1 ? 4 : 2;
+  return {
+    dimension: "direct_address",
+    score,
+    reason:
+      score >= 4
+        ? "Hook or caption speaks directly to the viewer."
+        : "Hook and caption are less likely to feel personally addressed."
+  };
+}
+
+function scoreConvictionAndHope(candidate: ClipCandidate, transcriptText: string): RubricScore {
+  const combined = `${candidate.hook} ${candidate.postCaption} ${transcriptText}`;
+  const hasConviction =
+    /\bsin|repent|truth|stop|wrong|fight|protect|choice|decision|challenge|convict|bound\b/i.test(
+      combined
+    );
+  const hasHope =
+    /\bhope|grace|mercy|freedom|free|healed|rest|jesus|god|inheritance|victory\b/i.test(combined);
+  const score = hasConviction && hasHope ? 5 : hasConviction || hasHope ? 4 : 2;
+  return {
+    dimension: "conviction_and_hope",
+    score,
+    reason:
+      score === 5
+        ? "Caption combines tension or conviction with a hopeful resolution."
+        : "Caption has less of the conviction-plus-hope pattern."
   };
 }
 

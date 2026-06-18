@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { clipSelectionPromptV1, clipSelectionPromptV2, clipSelectionPrompts } from "./index.js";
+import {
+  clipSelectionPromptV1,
+  clipSelectionPromptV2,
+  clipSelectionPromptV3,
+  clipSelectionPrompts
+} from "./index.js";
 
 describe("clip selection prompts", () => {
   it("keeps versioned prompt metadata explicit", () => {
@@ -10,9 +15,11 @@ describe("clip selection prompts", () => {
 
   it("exports prompt variants for eval comparison", () => {
     expect(clipSelectionPromptV2.version).toBe("clip-selection-v2");
+    expect(clipSelectionPromptV3.outputContract).toContain("conviction");
     expect(clipSelectionPrompts.map((prompt) => prompt.version)).toEqual([
       "clip-selection-v1",
-      "clip-selection-v2"
+      "clip-selection-v2",
+      "clip-selection-v3"
     ]);
   });
 });
