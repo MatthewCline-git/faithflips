@@ -49,6 +49,9 @@ type FillSegment = {
 type ClipCandidate = GeneratedClip["candidate"];
 
 let state: ViewState = { status: "idle" };
+let activeProgressStatus: ActiveProgressStatus | null = null;
+let activeProgressStartedAt = Date.now();
+let progressTimer: number | undefined;
 
 // Per-clip in-progress fill-mode edits, keyed by clip id. Contiguous segments cover
 // the whole clip (clip-relative seconds); default mode is the close-up crop. Survives
@@ -58,6 +61,14 @@ const fillEdits = new Map<string, FillSegment[]>();
 render();
 
 function render(): void {
+  const progressStatus = currentProgressStatus();
+  if (progressStatus) {
+    ensureProgressPhase(progressStatus);
+  } else {
+    stopProgressAnimation();
+    activeProgressStatus = null;
+  }
+
   appRoot.innerHTML = `
     <section class="shell">
       <header class="topbar">
@@ -121,6 +132,7 @@ function render(): void {
   });
 
   wireFillTimelines();
+  startProgressAnimation(progressStatus);
 }
 
 // ---------------------------------------------------------------------------
@@ -128,45 +140,109 @@ function render(): void {
 // ---------------------------------------------------------------------------
 
 type ProgressStatus = ProcessingJobStatus | "submitting";
+type ActiveProgressStatus = Exclude<ProgressStatus, "completed" | "failed">;
 
-function jobProgress(jobStatus: ProgressStatus): { pct: number; caption: string } {
-  switch (jobStatus) {
-    case "submitting":
-      return { pct: 5, caption: "Submitting..." };
-    case "queued":
-      return { pct: 10, caption: "Queued..." };
-    case "fetching_source":
-      return { pct: 22, caption: "Downloading video..." };
-    case "transcribing":
-      return { pct: 42, caption: "Transcribing audio..." };
-    case "selecting_clips":
-      return { pct: 64, caption: "Finding viral moments..." };
-    case "rendering_clips":
-      return { pct: 84, caption: "Rendering clips..." };
-    case "completed":
-      return { pct: 100, caption: "Done!" };
-    case "failed":
-      return { pct: 0, caption: "Failed" };
+type ProgressPhase = {
+  readonly startPct: number;
+  readonly endPct: number;
+  readonly expectedMs: number;
+  readonly caption: string;
+};
+
+const progressPhases: Record<ActiveProgressStatus, ProgressPhase> = {
+  submitting: { startPct: 3, endPct: 8, expectedMs: 2_500, caption: "Submitting..." },
+  queued: { startPct: 8, endPct: 15, expectedMs: 8_000, caption: "Queued..." },
+  fetching_source: {
+    startPct: 15,
+    endPct: 32,
+    expectedMs: 20_000,
+    caption: "Downloading video..."
+  },
+  transcribing: {
+    startPct: 32,
+    endPct: 58,
+    expectedMs: 45_000,
+    caption: "Transcribing audio..."
+  },
+  selecting_clips: {
+    startPct: 58,
+    endPct: 76,
+    expectedMs: 30_000,
+    caption: "Finding viral moments..."
+  },
+  rendering_clips: {
+    startPct: 76,
+    endPct: 94,
+    expectedMs: 60_000,
+    caption: "Rendering clips..."
   }
-}
+};
 
-function renderProgressBar(): string {
-  if (state.status === "idle") return "";
+function currentProgressStatus(): ActiveProgressStatus | null {
+  if (state.status === "idle") return null;
 
   const jobStatus: ProgressStatus =
     state.status === "submitting" ? "submitting" : (state.output?.job.status ?? "queued");
 
-  if (jobStatus === "completed" || jobStatus === "failed") return "";
+  return jobStatus === "completed" || jobStatus === "failed" ? null : jobStatus;
+}
 
-  const { pct, caption } = jobProgress(jobStatus);
+function ensureProgressPhase(jobStatus: ActiveProgressStatus): void {
+  if (activeProgressStatus === jobStatus) return;
+  activeProgressStatus = jobStatus;
+  activeProgressStartedAt = Date.now();
+}
+
+function progressPresentation(
+  jobStatus: ActiveProgressStatus,
+  now: number
+): { pct: number; caption: string } {
+  const phase = progressPhases[jobStatus];
+  const elapsedMs = Math.max(0, now - activeProgressStartedAt);
+  const linearProgress = Math.min(elapsedMs / phase.expectedMs, 0.98);
+  const easedProgress = 1 - (1 - linearProgress) ** 3;
+  const pct = phase.startPct + (phase.endPct - phase.startPct) * easedProgress;
+  return { pct, caption: phase.caption };
+}
+
+function startProgressAnimation(jobStatus: ActiveProgressStatus | null): void {
+  stopProgressAnimation();
+  if (!jobStatus) return;
+
+  const tick = (): void => {
+    const fill = document.querySelector<HTMLElement>(".progress-fill");
+    const pctLabel = document.querySelector<HTMLElement>(".progress-pct");
+    if (!fill || !pctLabel || !activeProgressStatus) return;
+
+    const { pct } = progressPresentation(activeProgressStatus, Date.now());
+    fill.style.width = `${pct.toFixed(1)}%`;
+    pctLabel.textContent = `${String(Math.floor(pct))}%`;
+    progressTimer = window.setTimeout(tick, 250);
+  };
+
+  tick();
+}
+
+function stopProgressAnimation(): void {
+  if (progressTimer !== undefined) {
+    window.clearTimeout(progressTimer);
+    progressTimer = undefined;
+  }
+}
+
+function renderProgressBar(): string {
+  const jobStatus = currentProgressStatus();
+  if (!jobStatus) return "";
+
+  const { pct, caption } = progressPresentation(jobStatus, Date.now());
   return `
     <div class="progress-panel">
       <div class="progress-track">
-        <div class="progress-fill" style="width:${String(pct)}%"></div>
+        <div class="progress-fill" style="width:${pct.toFixed(1)}%"></div>
       </div>
       <div class="progress-meta">
         <span class="progress-caption">${caption}</span>
-        <span class="progress-pct">${String(pct)}%</span>
+        <span class="progress-pct">${String(Math.floor(pct))}%</span>
       </div>
     </div>
   `;
