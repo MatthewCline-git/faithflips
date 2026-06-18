@@ -34,6 +34,10 @@ const finalizeBodySchema = z.object({
   blurPadSpans: z.array(blurPadSpanSchema).default([])
 });
 
+const createRunBodySchema = z.object({
+  clipCount: z.number().int().min(1).max(12).default(6)
+});
+
 export function createServer(input: {
   readonly store: JobStore;
   readonly dataDir: string;
@@ -61,6 +65,64 @@ export async function createApiResponse(input: {
 }): Promise<{ readonly statusCode: number; readonly body: unknown }> {
   if (input.method === "GET" && input.pathname === "/health") {
     return { statusCode: 200, body: { ok: true } };
+  }
+
+  const videoRunMatch = /^\/videos\/([^/]+)\/runs\/(\d+)$/.exec(input.pathname);
+  if (input.method === "GET" && videoRunMatch) {
+    const youtubeContentId = decodeURIComponent(videoRunMatch[1] ?? "");
+    const runNumber = Number(videoRunMatch[2]);
+    const run = await input.processing.getRun(youtubeContentId, runNumber);
+    if (!run.ok) {
+      return {
+        statusCode: 404,
+        body: {
+          error: {
+            code: "job_not_found",
+            message: "Run not found"
+          }
+        } satisfies ApiErrorResponse
+      };
+    }
+
+    return { statusCode: 200, body: run.value };
+  }
+
+  const videoRunsMatch = /^\/videos\/([^/]+)\/runs$/.exec(input.pathname);
+  if (input.method === "POST" && videoRunsMatch) {
+    const youtubeContentId = decodeURIComponent(videoRunsMatch[1] ?? "");
+    const parsedBody = createRunBodySchema.safeParse(input.body ?? {});
+    if (!parsedBody.success) {
+      return {
+        statusCode: 400,
+        body: {
+          error: {
+            code: "invalid_run_input",
+            message: parsedBody.error.issues[0]?.message ?? "Invalid run input"
+          }
+        } satisfies ApiErrorResponse
+      };
+    }
+
+    const accepted = await input.processing.createRun({
+      youtubeContentId,
+      clipCount: parsedBody.data.clipCount
+    });
+    if (!accepted.ok) {
+      return {
+        statusCode: 400,
+        body: {
+          error: {
+            code: accepted.error.type,
+            message: processingErrorMessage(accepted.error)
+          }
+        } satisfies ApiErrorResponse
+      };
+    }
+
+    if (input.processJobsOnSubmit ?? true) {
+      void input.processing.processJob(accepted.value.jobId);
+    }
+    return { statusCode: 202, body: accepted.value };
   }
 
   const jobMatch = /^\/jobs\/([^/]+)$/.exec(input.pathname);
@@ -109,7 +171,7 @@ export async function createApiResponse(input: {
       };
     }
 
-    if (input.processJobsOnSubmit ?? true) {
+    if ((input.processJobsOnSubmit ?? true) && accepted.value.status === "queued") {
       void input.processing.processJob(accepted.value.jobId);
     }
     return { statusCode: 202, body: accepted.value };

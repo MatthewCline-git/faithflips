@@ -22,6 +22,7 @@ import {
 import type { ClipSelectionModelProvider } from "@faithflips/model";
 import { clipSelectionPromptV1 } from "@faithflips/prompts";
 import { createFfmpegRenderer, type VideoRenderer } from "@faithflips/rendering";
+import { z } from "zod";
 import type { JobStore, PersistedJobRecord } from "./job-store.js";
 import {
   createLocalDevSourceMediaClient,
@@ -36,6 +37,8 @@ export type SubmissionAccepted = {
   readonly sermonId: string;
   readonly jobId: string;
   readonly status: ProcessingJob["status"];
+  readonly youtubeContentId: string;
+  readonly runNumber: number;
 };
 
 export type ProcessingServiceError =
@@ -55,6 +58,17 @@ export type ProcessingServiceError =
 
 export type ProcessingService = {
   submit(input: SubmitSermonInput): Promise<Result<SubmissionAccepted, ProcessingServiceError>>;
+  createRun(input: {
+    readonly youtubeContentId: string;
+    readonly clipCount: number;
+  }): Promise<Result<SubmissionAccepted, ProcessingServiceError>>;
+  getRun(
+    youtubeContentId: string,
+    runNumber: number
+  ): Promise<Result<PersistedJobRecord, ProcessingServiceError>>;
+  getLatestRun(
+    youtubeContentId: string
+  ): Promise<Result<PersistedJobRecord, ProcessingServiceError>>;
   processJob(jobId: string): Promise<Result<PersistedJobRecord, ProcessingServiceError>>;
   getJob(jobId: string): Promise<Result<PersistedJobRecord, ProcessingServiceError>>;
   rerenderClip(
@@ -72,7 +86,6 @@ export function createProcessingService(input: {
   readonly dataDir: string;
   readonly publicBaseUrl: string;
   readonly now?: () => Date;
-  readonly idFromSourceUrl?: (sourceUrl: string) => string;
   readonly sourceMedia?: SourceMediaClient;
   readonly transcription?: TranscriptionProvider;
   readonly clipSelection?: ClipSelectionModelProvider;
@@ -85,7 +98,6 @@ export function createProcessingService(input: {
     ((event) => {
       console.log(JSON.stringify(event));
     });
-  const idFromSourceUrl = input.idFromSourceUrl ?? stableIdFromSourceUrl;
   const commandRunner = createNodeCommandRunner();
   const sourceMedia =
     input.sourceMedia ??
@@ -135,36 +147,49 @@ export function createProcessingService(input: {
         });
       }
 
-      const stableId = idFromSourceUrl(submission.sourceUrl);
-      const createdAt = now().toISOString();
-      const sermon = sermonSchema.parse({
-        id: `sermon_${stableId}`,
-        sourceType: "youtube_url",
-        sourceUrl: submission.sourceUrl,
-        title: "Processing sermon",
-        speaker: "Unknown speaker",
-        durationSeconds: 1,
-        createdAt,
+      const latest = await latestRun(input.store, videoIdResult.value);
+      if (latest) {
+        return ok(toAccepted(latest.record, videoIdResult.value, latest.runNumber));
+      }
+
+      return createQueuedRun({
+        store: input.store,
+        logger,
+        now,
+        youtubeContentId: videoIdResult.value,
+        runNumber: 1,
         clipCount: submission.clipCount
       });
-      const job: ProcessingJob = {
-        id: `job_${stableId}`,
-        sermonId: sermon.id,
-        status: "queued",
-        createdAt,
-        updatedAt: createdAt
-      };
-
-      await input.store.create({ sermon, job, clips: [] });
-      logger({
-        event: "sermon_submitted",
-        sermonId: sermon.id,
-        jobId: job.id,
-        sourceType: sermon.sourceType,
-        sourceUrl: sermon.sourceUrl
+    },
+    async createRun(runInput) {
+      const parsed = youtubeContentIdSchema.safeParse(runInput.youtubeContentId);
+      if (!parsed.success) {
+        return err({
+          type: "invalid_source_url",
+          message: "Invalid YouTube content id"
+        });
+      }
+      const latest = await latestRun(input.store, parsed.data);
+      return createQueuedRun({
+        store: input.store,
+        logger,
+        now,
+        youtubeContentId: parsed.data,
+        runNumber: (latest?.runNumber ?? 0) + 1,
+        clipCount: runInput.clipCount
       });
-
-      return ok({ sermonId: sermon.id, jobId: job.id, status: job.status });
+    },
+    async getRun(youtubeContentId, runNumber) {
+      const record = await input.store.get(jobIdForRun(youtubeContentId, runNumber));
+      return record
+        ? ok(record)
+        : err({ type: "job_not_found", jobId: jobIdForRun(youtubeContentId, runNumber) });
+    },
+    async getLatestRun(youtubeContentId) {
+      const latest = await latestRun(input.store, youtubeContentId);
+      return latest
+        ? ok(latest.record)
+        : err({ type: "job_not_found", jobId: `video_${youtubeContentId}` });
     },
     async processJob(jobId) {
       const record = await input.store.get(jobId);
@@ -613,11 +638,92 @@ function modelProviderErrorMessage(error: {
   return error.type;
 }
 
-function stableIdFromSourceUrl(sourceUrl: string): string {
-  let hash = 2166136261;
-  for (const char of sourceUrl) {
-    hash ^= char.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
+const youtubeContentIdSchema = z.string().regex(/^[A-Za-z0-9_-]{6,}$/);
+
+function canonicalYouTubeUrl(youtubeContentId: string): string {
+  return `https://www.youtube.com/watch?v=${youtubeContentId}`;
+}
+
+function sermonIdForRun(youtubeContentId: string, runNumber: number): string {
+  return `sermon_${youtubeContentId}_run_${String(runNumber)}`;
+}
+
+function jobIdForRun(youtubeContentId: string, runNumber: number): string {
+  return `job_${youtubeContentId}_run_${String(runNumber)}`;
+}
+
+function runNumberFromJobId(jobId: string, youtubeContentId: string): number | undefined {
+  const prefix = `job_${youtubeContentId}_run_`;
+  if (!jobId.startsWith(prefix)) return undefined;
+  const runNumber = Number(jobId.slice(prefix.length));
+  return Number.isInteger(runNumber) && runNumber > 0 ? runNumber : undefined;
+}
+
+async function latestRun(
+  store: JobStore,
+  youtubeContentId: string
+): Promise<{ readonly record: PersistedJobRecord; readonly runNumber: number } | undefined> {
+  const records = await store.list();
+  return records.reduce<
+    { readonly record: PersistedJobRecord; readonly runNumber: number } | undefined
+  >((latest, record) => {
+    const runNumber = runNumberFromJobId(record.job.id, youtubeContentId);
+    if (runNumber === undefined) return latest;
+    return latest === undefined || runNumber > latest.runNumber ? { record, runNumber } : latest;
+  }, undefined);
+}
+
+function toAccepted(
+  record: PersistedJobRecord,
+  youtubeContentId: string,
+  runNumber: number
+): SubmissionAccepted {
+  return {
+    sermonId: record.sermon.id,
+    jobId: record.job.id,
+    status: record.job.status,
+    youtubeContentId,
+    runNumber
+  };
+}
+
+async function createQueuedRun(input: {
+  readonly store: JobStore;
+  readonly logger: (event: Record<string, unknown>) => void;
+  readonly now: () => Date;
+  readonly youtubeContentId: string;
+  readonly runNumber: number;
+  readonly clipCount: number;
+}): Promise<Result<SubmissionAccepted, ProcessingServiceError>> {
+  const createdAt = input.now().toISOString();
+  const sermon = sermonSchema.parse({
+    id: sermonIdForRun(input.youtubeContentId, input.runNumber),
+    sourceType: "youtube_url",
+    sourceUrl: canonicalYouTubeUrl(input.youtubeContentId),
+    title: "Processing sermon",
+    speaker: "Unknown speaker",
+    durationSeconds: 1,
+    createdAt,
+    clipCount: input.clipCount
+  });
+  const job: ProcessingJob = {
+    id: jobIdForRun(input.youtubeContentId, input.runNumber),
+    sermonId: sermon.id,
+    status: "queued",
+    createdAt,
+    updatedAt: createdAt
+  };
+
+  await input.store.create({ sermon, job, clips: [] });
+  input.logger({
+    event: "sermon_submitted",
+    sermonId: sermon.id,
+    jobId: job.id,
+    sourceType: sermon.sourceType,
+    sourceUrl: sermon.sourceUrl,
+    youtubeContentId: input.youtubeContentId,
+    runNumber: input.runNumber
+  });
+
+  return ok(toAccepted({ sermon, job, clips: [] }, input.youtubeContentId, input.runNumber));
 }

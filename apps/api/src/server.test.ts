@@ -11,7 +11,9 @@ import { createApiResponse } from "./server.js";
 const submissionAcceptedSchema = z.object({
   sermonId: z.string().min(1),
   jobId: z.string().min(1),
-  status: z.literal("queued")
+  status: z.enum(["queued", "completed"]),
+  youtubeContentId: z.string().min(1),
+  runNumber: z.number().int().positive()
 });
 
 const jobRecordSchema = z.object({
@@ -43,11 +45,16 @@ describe("POST /sermons", () => {
     const accepted = submissionAcceptedSchema.parse(response.body);
 
     expect(response.statusCode).toBe(202);
+    expect(accepted).toMatchObject({
+      youtubeContentId: "abc123",
+      runNumber: 1,
+      status: "queued"
+    });
     await processing.processJob(accepted.jobId);
 
     const jobResponse = await createApiResponse({
       method: "GET",
-      pathname: `/jobs/${accepted.jobId}`,
+      pathname: `/videos/${accepted.youtubeContentId}/runs/${String(accepted.runNumber)}`,
       processing
     });
     const body = jobRecordSchema.parse(jobResponse.body);
@@ -55,6 +62,70 @@ describe("POST /sermons", () => {
     expect(body.job.status).toBe("completed");
     expect(body.sermon.title).toBe("Sunday Message");
     expect(body.sermon.sourceUrl).toBe("https://www.youtube.com/watch?v=abc123");
+  });
+
+  it("loads the latest run for a source URL and creates explicit new runs", async () => {
+    let selectionCalls = 0;
+    const processing = createProcessingService({
+      store: createMemoryJobStore(),
+      dataDir: "/tmp/faithflips-test",
+      publicBaseUrl: "http://127.0.0.1:4001",
+      sourceMedia: createTestSourceMedia(),
+      transcription: createTestTranscription(),
+      clipSelection: createTestClipSelection(() => {
+        selectionCalls += 1;
+      }),
+      renderer: createTestRenderer(),
+      logger: () => undefined,
+      now: () => new Date("2026-01-01T00:00:00.000Z")
+    });
+    const sourceUrl = "https://www.youtube.com/watch?v=abc123";
+
+    const firstResponse = await createApiResponse({
+      method: "POST",
+      pathname: "/sermons",
+      body: { sourceUrl },
+      processing,
+      processJobsOnSubmit: false
+    });
+    const firstAccepted = submissionAcceptedSchema.parse(firstResponse.body);
+    await processing.processJob(firstAccepted.jobId);
+
+    const secondResponse = await createApiResponse({
+      method: "POST",
+      pathname: "/sermons",
+      body: { sourceUrl },
+      processing
+    });
+    const secondAccepted = submissionAcceptedSchema.parse(secondResponse.body);
+
+    expect(secondAccepted).toEqual({
+      sermonId: firstAccepted.sermonId,
+      jobId: firstAccepted.jobId,
+      status: "completed",
+      youtubeContentId: "abc123",
+      runNumber: 1
+    });
+    expect(selectionCalls).toBe(1);
+
+    const newRunResponse = await createApiResponse({
+      method: "POST",
+      pathname: "/videos/abc123/runs",
+      body: { clipCount: 6 },
+      processing,
+      processJobsOnSubmit: false
+    });
+    const newRunAccepted = submissionAcceptedSchema.parse(newRunResponse.body);
+
+    expect(newRunAccepted).toMatchObject({
+      youtubeContentId: "abc123",
+      runNumber: 2,
+      status: "queued"
+    });
+    expect(newRunAccepted.jobId).not.toBe(firstAccepted.jobId);
+
+    await processing.processJob(newRunAccepted.jobId);
+    expect(selectionCalls).toBe(2);
   });
 
   it("rejects non-YouTube submissions", async () => {
@@ -224,11 +295,12 @@ function createTestRenderer(): VideoRenderer {
   };
 }
 
-function createTestClipSelection(): ClipSelectionModelProvider {
+function createTestClipSelection(onSelect?: () => void): ClipSelectionModelProvider {
   return {
     provider: "test",
     model: "test-selector",
     selectClips(input) {
+      onSelect?.();
       return Promise.resolve(
         ok({
           output: {

@@ -3,6 +3,7 @@ import type { GeneratedClip, ProcessingJob, ProcessingJobStatus, Sermon } from "
 import "./styles.css";
 
 const apiUrl = import.meta.env["VITE_API_URL"] ?? "http://localhost:4000";
+const defaultSourceUrl = "https://www.youtube.com/watch?v=sCMVbmgrtZE";
 const appRoot = getAppRoot();
 
 function getAppRoot(): HTMLDivElement {
@@ -30,6 +31,8 @@ type SubmissionAccepted = {
   readonly sermonId: string;
   readonly jobId: string;
   readonly status: ProcessingJob["status"];
+  readonly youtubeContentId: string;
+  readonly runNumber: number;
 };
 
 type WorkflowOutput = {
@@ -59,6 +62,25 @@ let progressTimer: number | undefined;
 const fillEdits = new Map<string, FillSegment[]>();
 
 render();
+void loadInitialRun();
+
+async function loadInitialRun(): Promise<void> {
+  const route = currentRunRoute();
+  if (!route) return;
+
+  const output = await fetchRun(route.youtubeContentId, route.runNumber);
+  if (!output) return;
+
+  state = {
+    status:
+      output.job.status === "completed" || output.job.status === "failed" ? "idle" : "polling",
+    output
+  };
+  render();
+  if (state.status === "polling") {
+    await pollJob(output.job.id);
+  }
+}
 
 function render(): void {
   const progressStatus = currentProgressStatus();
@@ -86,6 +108,7 @@ function render(): void {
             name="sourceUrl"
             type="url"
             placeholder="https://www.youtube.com/watch?v=..."
+            value="${defaultSourceUrl}"
             required
           />
           <button type="submit" ${state.status === "submitting" ? "disabled" : ""}>
@@ -127,6 +150,12 @@ function render(): void {
   document.querySelectorAll(".download-btn").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       void handleDownload(event);
+    });
+  });
+
+  document.querySelectorAll(".regenerate-run-btn").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      void handleRegenerateRun(event);
     });
   });
 
@@ -263,6 +292,7 @@ function renderEmptyState(): string {
 }
 
 function renderReview(output: WorkflowOutput): string {
+  const runRoute = runRouteFromJobId(output.job.id);
   const jobSummaryHtml =
     output.job.status === "completed"
       ? ""
@@ -283,6 +313,11 @@ function renderReview(output: WorkflowOutput): string {
         <span class="label">Clips</span>
         <strong>${String(output.clips.length)}</strong>
       </div>
+      ${
+        runRoute
+          ? `<div class="summary-actions"><button type="button" class="regenerate-run-btn" data-youtube-content-id="${escapeHtml(runRoute.youtubeContentId)}">Re-generate clips</button></div>`
+          : ""
+      }
     </section>
 
     <section class="clip-grid">
@@ -390,6 +425,16 @@ async function submitSermon(event: Event): Promise<void> {
   }
 
   const accepted = (await response.json()) as SubmissionAccepted;
+  setRunRoute(accepted.youtubeContentId, accepted.runNumber);
+  if (accepted.status !== "queued") {
+    const cached = await fetchRun(accepted.youtubeContentId, accepted.runNumber);
+    state = cached
+      ? { status: "idle", output: cached }
+      : { status: "idle", error: "The existing job could not be loaded." };
+    render();
+    return;
+  }
+
   state = { status: "polling" };
   render();
   await pollJob(accepted.jobId);
@@ -397,9 +442,8 @@ async function submitSermon(event: Event): Promise<void> {
 
 async function pollJob(jobId: string): Promise<void> {
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    const response = await fetch(`${apiUrl}/jobs/${encodeURIComponent(jobId)}`);
-    if (response.ok) {
-      const output = (await response.json()) as WorkflowOutput;
+    const output = await fetchJob(jobId);
+    if (output) {
       state = {
         status:
           output.job.status === "completed" || output.job.status === "failed" ? "idle" : "polling",
@@ -418,6 +462,51 @@ async function pollJob(jobId: string): Promise<void> {
     error: "The job is still processing. Refresh the page to check again."
   });
   render();
+}
+
+async function fetchJob(jobId: string): Promise<WorkflowOutput | undefined> {
+  const response = await fetch(`${apiUrl}/jobs/${encodeURIComponent(jobId)}`);
+  return response.ok ? ((await response.json()) as WorkflowOutput) : undefined;
+}
+
+async function fetchRun(
+  youtubeContentId: string,
+  runNumber: number
+): Promise<WorkflowOutput | undefined> {
+  const response = await fetch(
+    `${apiUrl}/videos/${encodeURIComponent(youtubeContentId)}/runs/${String(runNumber)}`
+  );
+  return response.ok ? ((await response.json()) as WorkflowOutput) : undefined;
+}
+
+async function handleRegenerateRun(event: Event): Promise<void> {
+  const btn = event.currentTarget as HTMLButtonElement;
+  const youtubeContentId = btn.dataset["youtubeContentId"];
+  if (!youtubeContentId || !state.output) return;
+
+  btn.disabled = true;
+  btn.textContent = "Generating...";
+  try {
+    const response = await fetch(`${apiUrl}/videos/${encodeURIComponent(youtubeContentId)}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clipCount: state.output.sermon.clipCount })
+    });
+    if (!response.ok) {
+      throw new Error("Run creation failed");
+    }
+
+    const accepted = (await response.json()) as SubmissionAccepted;
+    setRunRoute(accepted.youtubeContentId, accepted.runNumber);
+    state = { status: "polling" };
+    render();
+    await pollJob(accepted.jobId);
+  } catch (err) {
+    alert("Re-generation failed. Check console for details.");
+    console.error(err);
+    btn.disabled = false;
+    btn.textContent = "Re-generate clips";
+  }
 }
 
 async function handleRerender(event: Event): Promise<void> {
@@ -1046,6 +1135,38 @@ function parseTimestampInput(value: string): number | undefined {
   }
 
   return minutes * 60 + seconds;
+}
+
+function currentRunRoute(): {
+  readonly youtubeContentId: string;
+  readonly runNumber: number;
+} | null {
+  const params = new URLSearchParams(window.location.search);
+  const youtubeContentId = params.get("video");
+  const runRaw = params.get("run");
+  const runNumber = runRaw ? Number(runRaw) : NaN;
+  if (!youtubeContentId || !Number.isInteger(runNumber) || runNumber <= 0) {
+    return null;
+  }
+  return { youtubeContentId, runNumber };
+}
+
+function setRunRoute(youtubeContentId: string, runNumber: number): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set("video", youtubeContentId);
+  url.searchParams.set("run", String(runNumber));
+  window.history.replaceState(null, "", url);
+}
+
+function runRouteFromJobId(
+  jobId: string
+): { readonly youtubeContentId: string; readonly runNumber: number } | null {
+  const match = /^job_(.+)_run_(\d+)$/.exec(jobId);
+  if (!match) return null;
+  const runNumber = Number(match[2]);
+  return match[1] && Number.isInteger(runNumber) && runNumber > 0
+    ? { youtubeContentId: match[1], runNumber }
+    : null;
 }
 
 function escapeHtml(value: string): string {

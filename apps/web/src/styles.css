@@ -228,6 +228,17 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.summary-actions {
+  display: flex;
+  align-items: end;
+  justify-content: end;
+}
+
+.summary-actions button {
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
 .clip-grid {
   display: grid;
   gap: 16px;
