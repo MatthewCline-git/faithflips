@@ -215,17 +215,20 @@ function renderReview(output: WorkflowOutput): string {
                   // Use the buffered preview for the crop video when available so small
                   // timestamp adjustments can be previewed instantly without re-rendering.
                   const previewStartSeconds = renderedClip.previewStartSeconds ?? candidate.startSeconds;
-                  const bufferBefore = candidate.startSeconds - previewStartSeconds;
-                  const cropSrc = renderedClip.previewUrl ?? renderedClip.cropVideoUrl;
+                  const previewUrlAttribute = renderedClip.previewUrl
+                    ? ` data-preview-url="${escapeHtml(renderedClip.previewUrl)}"`
+                    : "";
 
                   return `
             <article class="clip-card" data-clip-index="${index}">
               <div class="video-container"
                 data-clip-id="${candidate.id}"
-                data-buffer-before="${String(bufferBefore)}"
-                data-preview-start="${String(previewStartSeconds)}">
+                data-buffer-before="0"
+                data-clip-start="${String(candidate.startSeconds)}"
+                data-clip-end="${String(candidate.endSeconds)}"
+                data-preview-start="${String(previewStartSeconds)}"${previewUrlAttribute}>
                 <video class="clip-video crop" controls preload="auto">
-                  <source src="${cropSrc}" type="video/mp4">
+                  <source src="${renderedClip.cropVideoUrl}" type="video/mp4">
                 </video>
                 <video class="clip-video blur" controls muted preload="auto">
                   <source src="${renderedClip.blurVideoUrl}" type="video/mp4">
@@ -575,13 +578,37 @@ function wireFillTimelines(): void {
     if (!crop || !blur || !timeline || !container) return;
 
     const duration = Number(timeline.dataset["duration"] ?? "0");
-    // bufferBefore: how many seconds into the crop/preview file the actual clip starts.
-    // 0 when using the full crop video (no preview available).
-    const bufferBefore = Number(container.dataset["bufferBefore"] ?? "0");
-    const previewStart = Number(container.dataset["previewStart"] ?? "0");
+    const clipStart = Number(container.dataset["clipStart"] ?? "0");
+    const clipEnd = Number(container.dataset["clipEnd"] ?? "0");
+    const previewStart = Number(container.dataset["previewStart"] ?? String(clipStart));
+    const previewUrl = container.dataset["previewUrl"];
+    const getBufferBefore = (): number => Number(container.dataset["bufferBefore"] ?? "0");
+    const seekToSermonTime = (sermonTime: number): void => {
+      const needsPreview = sermonTime < clipStart || sermonTime > clipEnd;
+      if (needsPreview && previewUrl && crop.currentSrc !== previewUrl) {
+        container.dataset["bufferBefore"] = String(Math.max(0, clipStart - previewStart));
+        crop.src = previewUrl;
+        crop.addEventListener(
+          "loadedmetadata",
+          () => {
+            crop.currentTime = Math.max(0, sermonTime - previewStart);
+          },
+          { once: true }
+        );
+        crop.load();
+        return;
+      }
+
+      const bufferBefore = getBufferBefore();
+      crop.currentTime =
+        bufferBefore > 0
+          ? Math.max(0, sermonTime - previewStart)
+          : Math.max(0, sermonTime - clipStart);
+    };
 
     let rafHandle = 0;
     const refresh = (): void => {
+      const bufferBefore = getBufferBefore();
       const clipRelTime = Math.max(0, crop.currentTime - bufferBefore);
       updatePlayhead(card, clipRelTime, duration);
       updatePreview(card);
@@ -602,6 +629,7 @@ function wireFillTimelines(): void {
       if (!blur.paused) blur.pause();
     });
     crop.addEventListener("seeking", () => {
+      const bufferBefore = getBufferBefore();
       const blurTarget = Math.max(0, crop.currentTime - bufferBefore);
       if (Math.abs(blur.currentTime - blurTarget) > 0.05) blur.currentTime = blurTarget;
     });
@@ -610,13 +638,7 @@ function wireFillTimelines(): void {
     });
     crop.addEventListener("timeupdate", refresh);
     crop.addEventListener("seeked", refresh);
-    crop.addEventListener("loadeddata", () => {
-      // Seek past the leading buffer so playback begins at the clip start.
-      if (bufferBefore > 0 && crop.currentTime < bufferBefore) {
-        crop.currentTime = bufferBefore;
-      }
-      refresh();
-    });
+    crop.addEventListener("loadeddata", refresh);
 
     // blur → crop sync with buffer offset compensation
     blur.addEventListener("play", () => {
@@ -626,6 +648,7 @@ function wireFillTimelines(): void {
       if (!crop.paused) crop.pause();
     });
     blur.addEventListener("seeking", () => {
+      const bufferBefore = getBufferBefore();
       const cropTarget = blur.currentTime + bufferBefore;
       if (Math.abs(crop.currentTime - cropTarget) > 0.05) crop.currentTime = cropTarget;
     });
@@ -656,13 +679,13 @@ function wireFillTimelines(): void {
     startInput?.addEventListener("input", () => {
       const newStart = parseFloat(startInput.value);
       if (!isNaN(newStart)) {
-        crop.currentTime = Math.max(0, newStart - previewStart);
+        seekToSermonTime(newStart);
       }
     });
     endInput?.addEventListener("input", () => {
       const newEnd = parseFloat(endInput.value);
       if (!isNaN(newEnd)) {
-        crop.currentTime = Math.max(0, newEnd - previewStart);
+        seekToSermonTime(newEnd);
       }
     });
 
