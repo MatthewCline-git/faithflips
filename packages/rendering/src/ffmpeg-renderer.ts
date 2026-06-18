@@ -106,9 +106,11 @@ export function createFfmpegRenderer(input: {
   readonly storage: StorageClient;
   readonly workspace: RenderWorkspace;
   readonly ffmpegPath?: string;
+  readonly bufferSeconds?: number;
   readonly logger?: (event: Record<string, unknown>) => void;
 }): VideoRenderer {
   const ffmpegPath = input.ffmpegPath ?? "ffmpeg";
+  const bufferSeconds = input.bufferSeconds ?? 10;
   const logger = input.logger ?? (() => undefined);
 
   return {
@@ -181,6 +183,35 @@ export function createFfmpegRenderer(input: {
       });
       if (!blurUrl.ok) return blurUrl;
 
+      // Best-effort buffered preview: ±bufferSeconds around the clip for instant scrubbing
+      // in the editor without re-rendering. Failure is non-fatal — crop/blur still work.
+      const previewStart = Math.max(0, candidate.startSeconds - bufferSeconds);
+      const previewEnd = candidate.endSeconds + bufferSeconds;
+      const previewVideoPath = variantPath(input.workspace, candidate.id, "preview");
+      let previewUrl: string | undefined;
+      const previewRenderResult = await input.commandRunner.run(
+        ffmpegPath,
+        buildVideoArgs({
+          candidate,
+          sourceMedia,
+          mode: "crop-fill",
+          outputVideoPath: previewVideoPath,
+          subtitleStyle,
+          startOverride: previewStart,
+          endOverride: previewEnd
+        })
+      );
+      if (previewRenderResult.ok && previewRenderResult.value.exitCode === 0) {
+        const previewUpload = await input.storage.putObject({
+          key: `renders/${candidate.sermonId}/${candidate.id}-preview.mp4`,
+          filePath: previewVideoPath,
+          contentType: "video/mp4"
+        });
+        if (previewUpload.ok) {
+          previewUrl = previewUpload.value.url;
+        }
+      }
+
       const thumbnailResult = await input.commandRunner.run(
         ffmpegPath,
         buildThumbnailArgs({ candidate, sourceVideoPath: cropVideoPath, outputThumbnailPath })
@@ -225,7 +256,8 @@ export function createFfmpegRenderer(input: {
         blurVideoUrl: blurUrl.value,
         thumbnailUrl: thumbnailObject.value.url,
         subtitleStyle,
-        renderStatus: "completed"
+        renderStatus: "completed",
+        ...(previewUrl ? { previewUrl, previewStartSeconds: previewStart } : {})
       });
       if (!renderedClip.success) {
         return err({
@@ -364,7 +396,7 @@ export function createFfmpegRenderer(input: {
 function variantPath(
   workspace: RenderWorkspace,
   clipCandidateId: string,
-  variant: "crop" | "blur" | "final"
+  variant: "crop" | "blur" | "final" | "preview"
 ): string {
   return workspace.createPath({
     clipCandidateId: `${clipCandidateId}-${variant}`,
@@ -379,7 +411,11 @@ export function buildVideoArgs(input: {
   readonly subtitlePath?: string;
   readonly outputVideoPath: string;
   readonly subtitleStyle: z.infer<typeof subtitleStyleSchema>;
+  readonly startOverride?: number;
+  readonly endOverride?: number;
 }): readonly string[] {
+  const startSeconds = input.startOverride ?? input.candidate.startSeconds;
+  const endSeconds = input.endOverride ?? input.candidate.endSeconds;
   const videoFilter = input.mode === "blur-pad" ? staticBlurPadFilter() : cropFillFilter();
   const vf = input.subtitlePath
     ? `${videoFilter},${subtitleFilter(input.subtitlePath, input.subtitleStyle)}`
@@ -388,9 +424,9 @@ export function buildVideoArgs(input: {
   return [
     "-y",
     "-ss",
-    secondsArg(input.candidate.startSeconds),
+    secondsArg(startSeconds),
     "-to",
-    secondsArg(input.candidate.endSeconds),
+    secondsArg(endSeconds),
     "-i",
     input.sourceMedia.mediaUrl,
     "-vf",

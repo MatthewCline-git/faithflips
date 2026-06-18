@@ -196,11 +196,13 @@ describe("createFfmpegRenderer", () => {
         blurVideoUrl: "https://cdn.example.test/renders/sermon_1/clip_1-blur.mp4",
         thumbnailUrl: "https://cdn.example.test/renders/sermon_1/clip_1.jpg",
         subtitleStyle: "bold-readable",
-        renderStatus: "completed"
+        renderStatus: "completed",
+        previewUrl: "https://cdn.example.test/renders/sermon_1/clip_1-preview.mp4",
+        previewStartSeconds: 12.3456 - 10
       }
     });
-    // crop render, blur render, thumbnail
-    expect(commands).toHaveLength(3);
+    // crop render, blur render, preview render, thumbnail
+    expect(commands).toHaveLength(4);
     expect(commands[0]?.command).toBe("ffmpeg-test");
     expect(writtenFiles).toHaveLength(0);
     expect(events.map((event) => event["event"])).toEqual([
