@@ -13,7 +13,10 @@
       "Bash(pnpm --filter @faithflips/api tsc --noEmit)",
       "Bash(pnpm exec *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(xargs cat)",
+      "Bash(git *)",
+      "Bash(pnpm *)"
     ]
   }
 }

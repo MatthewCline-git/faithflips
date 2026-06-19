@@ -344,10 +344,10 @@ function renderReview(output: WorkflowOutput): string {
                 data-clip-end="${String(candidate.endSeconds)}"
                 data-crop-url="${escapeHtml(renderedClip.cropVideoUrl)}"
                 data-preview-start="${String(previewStartSeconds)}"${previewUrlAttribute}>
-                <video class="clip-video crop" controls preload="auto" data-active-url="${escapeHtml(renderedClip.cropVideoUrl)}">
+                <video class="clip-video crop" preload="auto" data-active-url="${escapeHtml(renderedClip.cropVideoUrl)}">
                   <source src="${renderedClip.cropVideoUrl}" type="video/mp4">
                 </video>
-                <video class="clip-video blur" controls muted preload="auto">
+                <video class="clip-video blur" muted preload="auto">
                   <source src="${renderedClip.blurVideoUrl}" type="video/mp4">
                 </video>
               </div>
@@ -715,33 +715,65 @@ function segmentsToSpans(segments: readonly FillSegment[]): FillSpan[] {
     }));
 }
 
-function fillTimelineHtml(candidate: ClipCandidate): string {
-  const duration = clipDuration(candidate);
-  const segments = getSegments(candidate);
+// windowStart and wDuration are in clip-relative time (0 = original clipStart).
+// Defaults to the full original clip when omitted.
+function fillTimelineHtml(candidate: ClipCandidate, windowStart = 0, wDuration?: number): string {
+  const originalDuration = clipDuration(candidate);
+  const duration = wDuration ?? originalDuration;
+  const wEnd = windowStart + duration;
+  const allSegments = getSegments(candidate);
 
-  const blocks = segments
+  // Non-interactive block for any area before the original clip start (backed-up start).
+  const preClipBlock =
+    windowStart < 0 && duration > 0
+      ? (() => {
+          const preWidthPct = (Math.min(0, wEnd) - windowStart) / duration * 100;
+          return preWidthPct > 0
+            ? `<div class="fill-segment crop pre-clip" style="width:${preWidthPct.toFixed(4)}%" title="Before clip start — re-render to include"></div>`
+            : "";
+        })()
+      : "";
+
+  // Render each segment clipped to the visible window, preserving original seg indexes.
+  const blocks = allSegments
     .map((segment, index) => {
-      const widthPct =
-        duration > 0 ? ((segment.endSeconds - segment.startSeconds) / duration) * 100 : 0;
+      const visStart = Math.max(segment.startSeconds, windowStart);
+      const visEnd = Math.min(segment.endSeconds, wEnd);
+      if (visEnd <= visStart) return "";
+      const widthPct = duration > 0 ? ((visEnd - visStart) / duration) * 100 : 0;
       const label = segment.mode === "blur-pad" ? "blur-pad" : "crop";
-      const title = `${formatTime(segment.startSeconds)}–${formatTime(segment.endSeconds)} · click to flip`;
+      const title = `${formatTime(visStart)}–${formatTime(visEnd)} · click to flip`;
       return `<button type="button" class="fill-segment ${segment.mode === "blur-pad" ? "blur" : "crop"}" data-seg-index="${String(index)}" style="width:${widthPct.toFixed(4)}%" title="${title}">${label}</button>`;
     })
     .join("");
 
-  const handles = segments
+  // Non-interactive block for any area past the original clip (extended window, not yet re-rendered).
+  const extensionBlock =
+    wEnd > originalDuration && duration > 0
+      ? (() => {
+          const extStart = Math.max(originalDuration, windowStart);
+          const extWidthPct = ((wEnd - extStart) / duration) * 100;
+          return extWidthPct > 0
+            ? `<div class="fill-segment crop extended" style="width:${extWidthPct.toFixed(4)}%" title="Extended region — re-render to include"></div>`
+            : "";
+        })()
+      : "";
+
+  // Breakpoints only within the window.
+  const handles = allSegments
     .slice(1)
     .map((segment, index) => {
-      const leftPct = duration > 0 ? (segment.startSeconds / duration) * 100 : 0;
+      if (segment.startSeconds <= windowStart || segment.startSeconds >= wEnd) return "";
+      const leftPct = duration > 0 ? ((segment.startSeconds - windowStart) / duration) * 100 : 0;
       return `<button type="button" class="breakpoint" data-boundary-index="${String(index + 1)}" style="left:${leftPct.toFixed(4)}%" title="Remove breakpoint">×</button>`;
     })
     .join("");
 
   return `
-    <div class="fill-timeline" data-clip-id="${candidate.id}" data-duration="${String(duration)}">
+    <div class="fill-timeline" data-clip-id="${candidate.id}" data-duration="${String(duration)}" data-window-start="${String(windowStart)}">
       <div class="fill-track-shell">
         <div class="fill-track">
-          ${blocks}
+          ${preClipBlock}${blocks}${extensionBlock}
           <div class="playhead" style="left:0%"></div>
           ${handles}
         </div>
@@ -767,13 +799,22 @@ function wireFillTimelines(): void {
     const container = card.querySelector<HTMLElement>(".video-container");
     if (!crop || !blur || !timeline || !container) return;
 
-    const duration = Number(timeline.dataset["duration"] ?? "0");
     const clipStart = Number(container.dataset["clipStart"] ?? "0");
     const clipEnd = Number(container.dataset["clipEnd"] ?? "0");
     const previewStart = Number(container.dataset["previewStart"] ?? String(clipStart));
     const cropUrl = container.dataset["cropUrl"];
     const previewUrl = container.dataset["previewUrl"];
     const getBufferBefore = (): number => Number(container.dataset["bufferBefore"] ?? "0");
+
+    // Returns the selected window in clip-relative time (0 = clipStart).
+    // wStart may be negative when selectedStart is before the original clip start.
+    const getWindow = (): { wStart: number; wDuration: number } => {
+      const trim = readTrimInputs(card);
+      const wStart = trim ? trim.startSeconds - clipStart : 0;
+      const wEnd = trim ? trim.endSeconds - clipStart : clipEnd - clipStart;
+      return { wStart, wDuration: wEnd - wStart };
+    };
+
     const seekToSermonTime = (sermonTime: number): void => {
       const needsPreview = sermonTime < clipStart || sermonTime > clipEnd;
       const targetUrl = needsPreview && previewUrl ? previewUrl : cropUrl;
@@ -803,19 +844,28 @@ function wireFillTimelines(): void {
       crop.currentTime = targetCurrentTime;
     };
 
+    const redrawTimelineWindow = (): void => {
+      const clipId = card.querySelector<HTMLElement>(".fill-timeline")?.dataset["clipId"];
+      const candidate = clipId ? findCandidate(clipId) : undefined;
+      const tl = card.querySelector<HTMLElement>(".fill-timeline");
+      if (!candidate || !tl) return;
+      const { wStart, wDuration } = getWindow();
+      tl.outerHTML = fillTimelineHtml(candidate, wStart, wDuration);
+      wireTimelineControls(card);
+    };
+
     let rafHandle = 0;
     const refresh = (): void => {
       const bufferBefore = getBufferBefore();
-      const clipRelTime = Math.max(0, crop.currentTime - bufferBefore);
-      const trim = readTrimInputs(card);
-      const selectedEnd = trim?.endSeconds ?? clipEnd;
-      const selectedDuration = Math.max(0, selectedEnd - clipStart);
-      if (selectedDuration > 0 && clipRelTime > selectedDuration + 0.05) {
-        crop.currentTime = bufferBefore + selectedDuration;
+      const clipRelTime = crop.currentTime - bufferBefore;
+      const { wStart, wDuration } = getWindow();
+      const wEnd = wStart + wDuration;
+      if (wDuration > 0 && clipRelTime > wEnd + 0.05) {
+        crop.currentTime = bufferBefore + wEnd;
         crop.pause();
         return;
       }
-      updatePlayhead(card, clipRelTime, duration);
+      updatePlayhead(card, clipRelTime - wStart, wDuration || clipEnd - clipStart);
       updatePreview(card);
     };
     // Both videos play from a shared start time; we only correct drift on explicit seeks.
@@ -836,6 +886,9 @@ function wireFillTimelines(): void {
     crop.addEventListener("seeking", () => {
       const bufferBefore = getBufferBefore();
       const blurTarget = Math.max(0, crop.currentTime - bufferBefore);
+      // Don't seek blur into the extended region — it only covers [0, blur.duration].
+      // A clamped seek would fire blur.seeking, which would fight the crop back.
+      if (Number.isFinite(blur.duration) && blurTarget > blur.duration - 0.05) return;
       if (Math.abs(blur.currentTime - blurTarget) > 0.05) blur.currentTime = blurTarget;
     });
     crop.addEventListener("ratechange", () => {
@@ -850,7 +903,8 @@ function wireFillTimelines(): void {
       if (crop.paused) void crop.play().catch(() => undefined);
     });
     blur.addEventListener("pause", () => {
-      if (!crop.paused) crop.pause();
+      // blur.ended means blur ran out of footage (extended region); don't propagate to crop.
+      if (!crop.paused && !blur.ended) crop.pause();
     });
     blur.addEventListener("seeking", () => {
       const bufferBefore = getBufferBefore();
@@ -871,6 +925,19 @@ function wireFillTimelines(): void {
 
     crop.addEventListener("play", () => {
       cancelAnimationFrame(rafHandle);
+      const bufferBeforeOnPlay = getBufferBefore();
+      const clipRelTimeOnPlay = Math.max(0, crop.currentTime - bufferBeforeOnPlay);
+      const { wStart, wDuration } = getWindow();
+      const wEnd = wStart + wDuration;
+      // Reset to wStart if at/past the window end, OR if at the end of the rendered file
+      // while the selected window extends beyond it (the extension region has no footage yet).
+      const origEnd = clipEnd - clipStart;
+      if (wDuration > 0 && (
+        clipRelTimeOnPlay >= wEnd - 0.05 ||
+        (wEnd > origEnd && clipRelTimeOnPlay >= origEnd - 0.05)
+      )) {
+        crop.currentTime = bufferBeforeOnPlay + Math.max(0, wStart);
+      }
       rafHandle = requestAnimationFrame(loop);
     });
     crop.addEventListener("pause", () => {
@@ -885,18 +952,42 @@ function wireFillTimelines(): void {
       const newStart = parseTimestampInput(startInput.value);
       if (newStart !== undefined) {
         seekToSermonTime(newStart);
+        redrawTimelineWindow();
       }
     });
     endInput?.addEventListener("input", () => {
       const newEnd = parseTimestampInput(endInput.value);
       if (newEnd !== undefined) {
         seekToSermonTime(newEnd);
+        redrawTimelineWindow();
       }
     });
+
+    container.addEventListener("click", () => {
+      if (crop.paused) void crop.play().catch(() => undefined);
+      else crop.pause();
+    });
+
+    const syncPausedClass = (): void => {
+      container.classList.toggle("paused", crop.paused);
+    };
+    crop.addEventListener("play", syncPausedClass);
+    crop.addEventListener("pause", syncPausedClass);
+    syncPausedClass();
 
     refresh();
     wireTimelineControls(card);
   });
+}
+
+function getWindowFromCard(card: HTMLElement): { wStart: number; wDuration: number } {
+  const container = card.querySelector<HTMLElement>(".video-container");
+  const clipStart = Number(container?.dataset["clipStart"] ?? "0");
+  const clipEnd = Number(container?.dataset["clipEnd"] ?? "0");
+  const trim = readTrimInputs(card);
+  const wStart = trim ? trim.startSeconds - clipStart : 0;
+  const wEnd = trim ? trim.endSeconds - clipStart : clipEnd - clipStart;
+  return { wStart, wDuration: wEnd - wStart };
 }
 
 function wireTimelineControls(card: HTMLElement): void {
@@ -904,7 +995,11 @@ function wireTimelineControls(card: HTMLElement): void {
   if (!timeline) return;
   const clipId = timeline.dataset["clipId"];
   if (!clipId) return;
+  // Capture duration and windowStart from the freshly-rendered timeline element.
+  // These are re-captured on every call to wireTimelineControls (which happens after
+  // every redraw), so they always reflect the current selected window.
   const duration = Number(timeline.dataset["duration"] ?? "0");
+  const windowStart = Number(timeline.dataset["windowStart"] ?? "0");
 
   // Segment click-to-toggle for keyboard accessibility (mouse handled via pointer capture below)
   timeline.querySelectorAll<HTMLButtonElement>(".fill-segment").forEach((block) => {
@@ -947,11 +1042,13 @@ function wireTimelineControls(card: HTMLElement): void {
   const seekFromPointer = (clientX: number): void => {
     const rect = track.getBoundingClientRect();
     const pct = clamp((clientX - rect.left) / rect.width, 0, 1);
-    const clipRelativeTime = pct * duration;
+    // Map 0-100% of the track to [windowStart, windowStart + duration] in clip-relative time.
+    const clipRelativeTime = windowStart + pct * duration;
     const bufferBefore = Number(container?.dataset["bufferBefore"] ?? "0");
 
     if (crop) crop.currentTime = bufferBefore + clipRelativeTime;
-    updatePlayhead(card, clipRelativeTime, duration);
+    // Playhead position is relative to the window start.
+    updatePlayhead(card, clipRelativeTime - windowStart, duration);
   };
 
   track.addEventListener("pointerdown", (e) => {
@@ -981,7 +1078,7 @@ function wireTimelineControls(card: HTMLElement): void {
       // (Clicks on segment buttons are handled by the button's own click handler above.)
       const rect = track.getBoundingClientRect();
       const pct = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-      const clickTime = pct * duration;
+      const clickTime = windowStart + pct * duration;
       const segments = fillEdits.get(clipId) ?? [];
       const segIndex = segments.findIndex(
         (seg) => clickTime >= seg.startSeconds && clickTime < seg.endSeconds
@@ -1017,13 +1114,15 @@ function redrawTimeline(card: HTMLElement, clipId: string): void {
   const candidate = findCandidate(clipId);
   const timeline = card.querySelector<HTMLElement>(".fill-timeline");
   if (!candidate || !timeline) return;
-  timeline.outerHTML = fillTimelineHtml(candidate);
+  const { wStart, wDuration } = getWindowFromCard(card);
+  timeline.outerHTML = fillTimelineHtml(candidate, wStart, wDuration);
   wireTimelineControls(card);
   const crop = card.querySelector<HTMLVideoElement>("video.crop");
   const container = card.querySelector<HTMLElement>(".video-container");
   const bufferBefore = Number(container?.dataset["bufferBefore"] ?? "0");
   if (crop) {
-    updatePlayhead(card, Math.max(0, crop.currentTime - bufferBefore), clipDuration(candidate));
+    const clipRelTime = Math.max(0, crop.currentTime - bufferBefore);
+    updatePlayhead(card, clipRelTime - wStart, wDuration || clipDuration(candidate));
   }
   updatePreview(card);
 }
