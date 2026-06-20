@@ -242,7 +242,7 @@ async function downloadYouTubeMedia(input: {
     "--force-overwrites",
     "--no-playlist",
     "-f",
-    "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+    "bv*[ext=mp4][vcodec^=vp9]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
     "--merge-output-format",
     "mp4",
     "-o",
