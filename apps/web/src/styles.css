@@ -48,7 +48,7 @@ input {
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 24px;
+  margin-bottom: 0;
 }
 
 .eyebrow,
@@ -72,6 +72,13 @@ h1 {
   line-height: 0.98;
   margin-bottom: 0;
   white-space: nowrap;
+}
+
+.hero-subtitle {
+  color: #5d675f;
+  font-size: clamp(0.75rem, 3vw, 2.25rem);
+  margin: 20px 0;
+  opacity: 0.6;
 }
 
 h2 {
