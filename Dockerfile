@@ -29,4 +29,4 @@ RUN pnpm --filter @faithflips/web... build
 
 EXPOSE 4001
 
-CMD ["node_modules/.bin/tsx", "apps/api/src/index.ts"]
+CMD ["pnpm", "--filter", "@faithflips/api", "dev"]
