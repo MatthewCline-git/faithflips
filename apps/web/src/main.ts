@@ -95,7 +95,7 @@ function render(): void {
         <header class="topbar">
           <div>
             <p class="eyebrow">FaithTok</p>
-            <h1>Turn your sermon into clips</h1>
+            <h1>Turn your sermon into viral clips</h1>
           </div>
         </header>
 
