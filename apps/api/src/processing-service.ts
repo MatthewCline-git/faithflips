@@ -30,7 +30,7 @@ import {
   createLocalRenderWorkspace,
   createLocalStorageClient,
   createNodeCommandRunner,
-  createYtDlpTranscriptionProvider
+  createWhisperTranscriptionProvider
 } from "./local-dev-runtime.js";
 import { createOpenAiClipSelectionProvider } from "./openai-clip-selector.js";
 
@@ -96,8 +96,9 @@ export function createProcessingService(input: {
     });
   const transcription =
     input.transcription ??
-    createYtDlpTranscriptionProvider({
+    createWhisperTranscriptionProvider({
       dataDir: input.dataDir,
+      apiKey: process.env["OPENAI_API_KEY"] ?? "",
       now,
       logger
     });

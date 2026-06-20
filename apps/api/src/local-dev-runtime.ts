@@ -218,6 +218,100 @@ export function createLocalRenderWorkspace(input: { readonly workDir: string }):
   };
 }
 
+type WhisperSegment = {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+};
+
+type WhisperVerboseResponse = {
+  readonly segments: readonly WhisperSegment[];
+};
+
+export function createWhisperTranscriptionProvider(input: {
+  readonly dataDir: string;
+  readonly apiKey: string;
+  readonly now: () => Date;
+  readonly logger: (event: Record<string, unknown>) => void;
+}): TranscriptionProvider {
+  return {
+    provider: "openai",
+    model: "whisper-1",
+    async transcribe(transcriptionInput) {
+      const audioDir = join(input.dataDir, "audio");
+      await mkdir(audioDir, { recursive: true });
+
+      const audioPath = join(audioDir, `${transcriptionInput.media.videoId}-2x.mp3`);
+      const cached = await findExistingFile(audioDir, `${transcriptionInput.media.videoId}-2x`);
+
+      if (!cached) {
+        input.logger({ event: "whisper_audio_extraction_started", videoId: transcriptionInput.media.videoId });
+        const extract = await runCommand("ffmpeg", [
+          "-i", transcriptionInput.media.mediaUrl,
+          "-filter:a", "atempo=2.0",
+          "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k",
+          "-y", audioPath
+        ]);
+        if (!extract.ok || extract.value.exitCode !== 0) {
+          const msg = extract.ok ? (extract.value.stderr ?? "Audio extraction failed") : extract.error.message;
+          return err({ type: "transcript_unavailable", provider: "openai", model: "whisper-1", sermonId: transcriptionInput.sermonId, message: msg });
+        }
+        input.logger({ event: "whisper_audio_extraction_completed", videoId: transcriptionInput.media.videoId });
+      } else {
+        input.logger({ event: "whisper_audio_cache_hit", videoId: transcriptionInput.media.videoId });
+      }
+
+      input.logger({ event: "whisper_transcription_started", sermonId: transcriptionInput.sermonId });
+
+      const audioData = await readFile(cached ?? audioPath);
+      const form = new FormData();
+      form.append("file", new Blob([audioData], { type: "audio/mpeg" }), "audio.mp3");
+      form.append("model", "whisper-1");
+      form.append("response_format", "verbose_json");
+
+      const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${input.apiKey}` },
+        body: form
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        return err({ type: "transcript_unavailable", provider: "openai", model: "whisper-1", sermonId: transcriptionInput.sermonId, message: `Whisper API ${String(response.status)}: ${detail}` });
+      }
+
+      const data = (await response.json()) as WhisperVerboseResponse;
+
+      // Audio was sped up 2x so Whisper timestamps are halved — multiply by 2 to restore
+      const segments = data.segments
+        .map((s) => ({ startSeconds: s.start * 2, endSeconds: s.end * 2, text: s.text.trim() }))
+        .filter((s) => s.text.length > 0);
+
+      input.logger({ event: "whisper_transcription_completed", sermonId: transcriptionInput.sermonId, segmentCount: segments.length });
+
+      const normalized = normalizeTranscriptSegments({
+        sermonId: transcriptionInput.sermonId,
+        language: "en",
+        segments
+      });
+
+      if (!normalized.ok) {
+        return err({ type: "malformed_transcript", provider: "openai", model: "whisper-1", sermonId: transcriptionInput.sermonId, issues: normalized.error.issues });
+      }
+
+      return ok({
+        transcript: normalized.value,
+        metadata: transcriptionProviderMetadataSchema.parse({
+          provider: "openai",
+          model: "whisper-1",
+          language: normalized.value.language,
+          createdAt: input.now().toISOString()
+        })
+      });
+    }
+  };
+}
+
 async function downloadYouTubeMedia(input: {
   readonly dataDir: string;
   readonly sourceUrl: string;
@@ -239,7 +333,7 @@ async function downloadYouTubeMedia(input: {
     "--force-overwrites",
     "--no-playlist",
     "-f",
-    "bv*[ext=mp4][vcodec^=vp9]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+    "bv*[height<=480][ext=mp4]+ba[ext=m4a]/bv*[height<=480]+ba[ext=m4a]/b[height<=480]/best[height<=480]",
     "--merge-output-format",
     "mp4",
     "--extractor-args",
