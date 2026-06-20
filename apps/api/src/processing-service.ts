@@ -4,7 +4,6 @@ import {
   ok,
   sermonSchema,
   transitionProcessingJob,
-  type BlurPadSpan,
   type GeneratedClip,
   type ProcessingJob,
   type ProcessingJobEvent,
@@ -68,10 +67,6 @@ export type ProcessingService = {
   rerenderClip(
     clipId: string,
     trim: { startSeconds: number; endSeconds: number }
-  ): Promise<Result<GeneratedClip, ProcessingServiceError>>;
-  finalizeClip(
-    clipId: string,
-    blurPadSpans: readonly BlurPadSpan[]
   ): Promise<Result<GeneratedClip, ProcessingServiceError>>;
 };
 
@@ -368,13 +363,10 @@ export function createProcessingService(input: {
       }
       const { record, clipIndex, clip } = found;
 
-      // A trim re-renders both variants from source for the new window. Blur-pad spans
-      // are clip-relative, so they no longer line up and are reset to the default crop.
       const updatedCandidate = clipCandidateSchema.parse({
         ...clip.candidate,
         startSeconds: trim.startSeconds,
-        endSeconds: trim.endSeconds,
-        blurPadSpans: []
+        endSeconds: trim.endSeconds
       });
 
       logger({
@@ -446,57 +438,6 @@ export function createProcessingService(input: {
         event: "clip_rerender_completed",
         clipId,
         cropVideoUrl: rendered.value.cropVideoUrl
-      });
-
-      return ok(updatedClip);
-    },
-    async finalizeClip(clipId, blurPadSpans) {
-      const found = await findClip(input.store, clipId);
-      if (!found) {
-        return err({ type: "job_not_found", jobId: clipId });
-      }
-      const { record, clipIndex, clip } = found;
-
-      // Persist the chosen fill plan on the candidate, then stitch the pre-rendered crop
-      // and blur variants locally — the source is never re-fetched.
-      const updatedCandidate = clipCandidateSchema.parse({
-        ...clip.candidate,
-        blurPadSpans
-      });
-
-      logger({
-        event: "clip_finalize_started",
-        clipId,
-        sermonId: record.sermon.id,
-        blurPadSpanCount: updatedCandidate.blurPadSpans.length
-      });
-
-      const stitched = await renderer.stitch({
-        candidate: updatedCandidate,
-        blurPadSpans: updatedCandidate.blurPadSpans
-      });
-      if (!stitched.ok) {
-        logger({ event: "clip_finalize_failed", clipId, error: stitched.error.type });
-        return err({
-          type: "workflow_failed",
-          jobId: record.job.id,
-          message: `Stitch failed: ${stitched.error.type}`
-        });
-      }
-
-      const updatedClip: GeneratedClip = {
-        candidate: updatedCandidate,
-        renderedClip: { ...clip.renderedClip, finalVideoUrl: stitched.value.finalVideoUrl }
-      };
-
-      const updatedClips = [...record.clips];
-      updatedClips[clipIndex] = updatedClip;
-      await input.store.update({ ...record, clips: updatedClips });
-
-      logger({
-        event: "clip_finalize_completed",
-        clipId,
-        finalVideoUrl: stitched.value.finalVideoUrl
       });
 
       return ok(updatedClip);

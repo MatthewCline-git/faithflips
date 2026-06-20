@@ -266,18 +266,10 @@ function createTestRenderer(): VideoRenderer {
           format: "mp4",
           aspectRatio: "9:16",
           cropVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-crop.mp4`,
-          blurVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-blur.mp4`,
           thumbnailUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}.jpg`,
           subtitleStyle: "bold-readable",
           renderStatus: "completed",
           previewStartSeconds: 0
-        })
-      );
-    },
-    stitch(input) {
-      return Promise.resolve(
-        ok({
-          finalVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-final.mp4`
         })
       );
     }
@@ -304,8 +296,7 @@ function createTestClipSelection(onSelect?: () => void): ClipSelectionModelProvi
               postCaption: "Test caption",
               confidence: 0.8,
               promptVersion: input.prompt.version,
-              model: "test-selector",
-              blurPadSpans: []
+              model: "test-selector"
             }))
           },
           metadata: {

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clipCandidateSchema, ok, transcriptSchema, type Result } from "@faithflips/core";
 import {
-  buildFillSegments,
-  buildStitchArgs,
   buildThumbnailArgs,
   buildVideoArgs,
   createFfmpegRenderer,
@@ -42,12 +40,11 @@ const transcript = transcriptSchema.parse({
 });
 
 describe("ffmpeg renderer args", () => {
-  it("builds crop-fill video args that cut from source media and burn subtitles", () => {
+  it("builds video args that cut from source media and burn subtitles", () => {
     expect(
       buildVideoArgs({
         candidate,
         sourceMedia,
-        mode: "crop-fill",
         subtitlePath: "/tmp/clip_1.srt",
         outputVideoPath: "/tmp/clip_1-crop.mp4",
         subtitleStyle: "bold-readable"
@@ -78,28 +75,10 @@ describe("ffmpeg renderer args", () => {
     ]);
   });
 
-  it("builds a static blur-pad filtergraph for blur-pad mode (no time gating)", () => {
+  it("uses the center-crop 16:9 filter", () => {
     const args = buildVideoArgs({
       candidate,
       sourceMedia,
-      mode: "blur-pad",
-      subtitlePath: "/tmp/clip_1.srt",
-      outputVideoPath: "/tmp/clip_1-blur.mp4",
-      subtitleStyle: "bold-readable"
-    });
-    const vf = args[args.indexOf("-vf") + 1] ?? "";
-
-    expect(vf).toContain("gblur=sigma=20");
-    expect(vf).toContain("overlay=(W-w)/2:(H-h)/2");
-    expect(vf).not.toContain("enable=");
-    expect(vf).toContain(",subtitles=/tmp/clip_1.srt");
-  });
-
-  it("uses the close-up crop filter for crop-fill mode", () => {
-    const args = buildVideoArgs({
-      candidate,
-      sourceMedia,
-      mode: "crop-fill",
       outputVideoPath: "/tmp/clip_1-crop.mp4",
       subtitleStyle: "bold-readable"
     });
@@ -124,43 +103,6 @@ describe("ffmpeg renderer args", () => {
       "1",
       "/tmp/clip_1.jpg"
     ]);
-  });
-
-  it("builds contiguous fill segments from blur-pad spans", () => {
-    expect(buildFillSegments([{ startSeconds: 2, endSeconds: 4 }], 6)).toEqual([
-      { startSeconds: 0, endSeconds: 2, mode: "crop-fill" },
-      { startSeconds: 2, endSeconds: 4, mode: "blur-pad" },
-      { startSeconds: 4, endSeconds: 6, mode: "crop-fill" }
-    ]);
-    expect(buildFillSegments([], 6)).toEqual([
-      { startSeconds: 0, endSeconds: 6, mode: "crop-fill" }
-    ]);
-  });
-
-  it("builds a trim+concat stitch from the crop and blur inputs", () => {
-    const segments = buildFillSegments([{ startSeconds: 2, endSeconds: 4 }], 6);
-    const args = buildStitchArgs({
-      cropVideoPath: "/tmp/clip_1-crop.mp4",
-      blurVideoPath: "/tmp/clip_1-blur.mp4",
-      finalVideoPath: "/tmp/clip_1-final.mp4",
-      segments
-    });
-
-    expect(args.slice(0, 5)).toEqual([
-      "-y",
-      "-i",
-      "/tmp/clip_1-crop.mp4",
-      "-i",
-      "/tmp/clip_1-blur.mp4"
-    ]);
-    const filter = args[args.indexOf("-filter_complex") + 1] ?? "";
-    // crop slice from input 0, blur slice from input 1, crop slice from input 0
-    expect(filter).toContain("[0:v]trim=0:2,setpts=PTS-STARTPTS[s0]");
-    expect(filter).toContain("[1:v]trim=2:4,setpts=PTS-STARTPTS[s1]");
-    expect(filter).toContain("[0:v]trim=4:6,setpts=PTS-STARTPTS[s2]");
-    expect(filter).toContain("[s0][s1][s2]concat=n=3:v=1:a=0[outv]");
-    expect(args).toEqual(expect.arrayContaining(["-map", "[outv]", "0:a?"]));
-    expect(args[args.length - 1]).toBe("/tmp/clip_1-final.mp4");
   });
 });
 
@@ -193,49 +135,20 @@ describe("createFfmpegRenderer", () => {
         format: "mp4",
         aspectRatio: "9:16",
         cropVideoUrl: "https://cdn.example.test/renders/sermon_1/clip_1-crop.mp4",
-        blurVideoUrl: "https://cdn.example.test/renders/sermon_1/clip_1-blur.mp4",
         thumbnailUrl: "https://cdn.example.test/renders/sermon_1/clip_1.jpg",
         subtitleStyle: "bold-readable",
         renderStatus: "completed",
-        previewUrl: "https://cdn.example.test/renders/sermon_1/clip_1-preview.mp4",
         previewStartSeconds: 12.3456 - 10
       }
     });
-    // crop render, blur render, preview render, thumbnail
-    expect(commands).toHaveLength(4);
+    // video render + thumbnail
+    expect(commands).toHaveLength(2);
     expect(commands[0]?.command).toBe("ffmpeg-test");
     expect(writtenFiles).toHaveLength(0);
     expect(events.map((event) => event["event"])).toEqual([
       "rendering_started",
       "rendering_completed"
     ]);
-  });
-
-  it("stitches the crop and blur variants for a mixed fill plan", async () => {
-    const commands: Array<{ readonly command: string; readonly args: readonly string[] }> = [];
-    const renderer = createFfmpegRenderer({
-      ffmpegPath: "ffmpeg-test",
-      commandRunner: {
-        run(command, args) {
-          commands.push({ command, args });
-          return Promise.resolve(ok({ exitCode: 0 }));
-        }
-      },
-      storage: createDeterministicStorageClient({ publicBaseUrl: "https://cdn.example.test" }),
-      workspace: createWorkspace([])
-    });
-
-    const result = await renderer.stitch({
-      candidate,
-      blurPadSpans: [{ startSeconds: 5, endSeconds: 10 }]
-    });
-
-    expect(result).toEqual({
-      ok: true,
-      value: { finalVideoUrl: "https://cdn.example.test/renders/sermon_1/clip_1-final.mp4" }
-    });
-    expect(commands).toHaveLength(1);
-    expect(commands[0]?.args).toEqual(expect.arrayContaining(["-filter_complex"]));
   });
 
   it("burns subtitles when burnSubtitles is true", async () => {

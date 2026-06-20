@@ -131,7 +131,6 @@ function buildClip(input: {
       format: "mp4",
       aspectRatio: "9:16",
       cropVideoUrl: `https://example.com/fake-renders/${candidate.id}-crop.mp4`,
-      blurVideoUrl: `https://example.com/fake-renders/${candidate.id}-blur.mp4`,
       thumbnailUrl: `https://example.com/fake-renders/${candidate.id}.jpg`,
       subtitleStyle: "bold-readable",
       renderStatus: "completed",

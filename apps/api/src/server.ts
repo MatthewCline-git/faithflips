@@ -6,7 +6,7 @@ import {
   type ServerResponse
 } from "node:http";
 import { extname, join, normalize, relative } from "node:path";
-import { blurPadSpanSchema, submitSermonSchema } from "@faithflips/core";
+import { submitSermonSchema } from "@faithflips/core";
 import { z } from "zod";
 import type { JobStore } from "./job-store.js";
 import { createProcessingService, type ProcessingService } from "./processing-service.js";
@@ -29,10 +29,6 @@ const rerenderBodySchema = z
     message: "endSeconds must be greater than startSeconds",
     path: ["endSeconds"]
   });
-
-const finalizeBodySchema = z.object({
-  blurPadSpans: z.array(blurPadSpanSchema).default([])
-});
 
 const createRunBodySchema = z.object({
   clipCount: z.number().int().min(1).max(12).default(6)
@@ -224,39 +220,6 @@ export async function createApiResponse(input: {
     }
 
     const result = await input.processing.rerenderClip(clipId, parsedBody.data);
-    if (!result.ok) {
-      return {
-        statusCode: 400,
-        body: {
-          error: {
-            code: result.error.type,
-            message: processingErrorMessage(result.error)
-          }
-        } satisfies ApiErrorResponse
-      };
-    }
-
-    return { statusCode: 200, body: result.value };
-  }
-
-  const finalizeMatch = /^\/clips\/([^/]+)\/finalize$/.exec(input.pathname);
-  if (input.method === "POST" && finalizeMatch) {
-    const clipId = decodeURIComponent(finalizeMatch[1] ?? "");
-    const parsedBody = finalizeBodySchema.safeParse(input.body);
-
-    if (!parsedBody.success) {
-      return {
-        statusCode: 400,
-        body: {
-          error: {
-            code: "invalid_finalize_input",
-            message: parsedBody.error.issues[0]?.message ?? "Invalid finalize input"
-          }
-        } satisfies ApiErrorResponse
-      };
-    }
-
-    const result = await input.processing.finalizeClip(clipId, parsedBody.data.blurPadSpans);
     if (!result.ok) {
       return {
         statusCode: 400,
