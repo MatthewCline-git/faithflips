@@ -278,53 +278,64 @@ export function createProcessingService(input: {
         clipCount: clipTotal
       });
 
+      const rawClips = clipSelection.value.output.clips;
       const renderedClips: GeneratedClip[] = [];
-      for (let i = 0; i < clipSelection.value.output.clips.length; i++) {
-        const parsedCandidate = clipCandidateSchema.parse(clipSelection.value.output.clips[i]);
-        const clipIndex = i + 1;
-        logger({
-          event: "clip_render_started",
-          sermonId: clipsSelected.value.sermon.id,
-          jobId: clipsSelected.value.job.id,
-          clipIndex,
-          clipTotal,
-          clipTitle: parsedCandidate.title,
-          startSeconds: parsedCandidate.startSeconds,
-          endSeconds: parsedCandidate.endSeconds
-        });
-        const rendered = await renderer.render({
-          candidate: parsedCandidate,
-          transcript: ingestionResult.value.transcript,
-          sourceMedia: ingestionResult.value.media
-        });
-        if (!rendered.ok) {
-          const renderError = rendered.error;
-          const renderMessage =
-            "message" in renderError ? renderError.message : renderError.type;
-          logger({
-            event: "clip_render_failed",
-            sermonId: clipsSelected.value.sermon.id,
-            jobId: clipsSelected.value.job.id,
-            clipIndex,
-            error: renderMessage
-          });
-          return failJob(
-            input.store,
-            clipsSelected.value,
-            `Rendering failed: ${renderMessage}`,
-            now,
-            logger
-          );
+      const concurrency = 2;
+
+      for (let i = 0; i < rawClips.length; i += concurrency) {
+        const chunk = rawClips.slice(i, i + concurrency);
+        const chunkResults = await Promise.allSettled(
+          chunk.map(async (rawClip, offset) => {
+            const clipIndex = i + offset + 1;
+            const parsedCandidate = clipCandidateSchema.parse(rawClip);
+            logger({
+              event: "clip_render_started",
+              sermonId: clipsSelected.value.sermon.id,
+              jobId: clipsSelected.value.job.id,
+              clipIndex,
+              clipTotal,
+              clipTitle: parsedCandidate.title,
+              startSeconds: parsedCandidate.startSeconds,
+              endSeconds: parsedCandidate.endSeconds
+            });
+            const rendered = await renderer.render({
+              candidate: parsedCandidate,
+              transcript: ingestionResult.value.transcript,
+              sourceMedia: ingestionResult.value.media
+            });
+            if (!rendered.ok) {
+              const renderError = rendered.error;
+              const renderMessage =
+                "message" in renderError ? renderError.message : renderError.type;
+              logger({
+                event: "clip_render_failed",
+                sermonId: clipsSelected.value.sermon.id,
+                jobId: clipsSelected.value.job.id,
+                clipIndex,
+                error: renderMessage
+              });
+              throw new Error(renderMessage);
+            }
+            logger({
+              event: "clip_render_completed",
+              sermonId: clipsSelected.value.sermon.id,
+              jobId: clipsSelected.value.job.id,
+              clipIndex,
+              clipTotal,
+              cropVideoUrl: rendered.value.cropVideoUrl
+            });
+            return { candidate: parsedCandidate, renderedClip: rendered.value } as GeneratedClip;
+          })
+        );
+
+        const failure = chunkResults.find((r) => r.status === "rejected");
+        if (failure && failure.status === "rejected") {
+          const message = failure.reason instanceof Error ? failure.reason.message : "render failed";
+          return failJob(input.store, clipsSelected.value, `Rendering failed: ${message}`, now, logger);
         }
-        logger({
-          event: "clip_render_completed",
-          sermonId: clipsSelected.value.sermon.id,
-          jobId: clipsSelected.value.job.id,
-          clipIndex,
-          clipTotal,
-          cropVideoUrl: rendered.value.cropVideoUrl
-        });
-        renderedClips.push({ candidate: parsedCandidate, renderedClip: rendered.value });
+        for (const result of chunkResults) {
+          if (result.status === "fulfilled") renderedClips.push(result.value);
+        }
       }
 
       logger({

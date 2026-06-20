@@ -115,6 +115,7 @@ function render(): void {
             </label>
           </div>
         </form>
+        ${renderProgressBar()}
       </div>
 
       ${state.output ? renderReview(state.output) : ""}
@@ -277,14 +278,6 @@ function renderEmptyState(): string {
 
 function renderReview(output: WorkflowOutput): string {
   const runRoute = runRouteFromJobId(output.job.id);
-  const jobSummaryHtml =
-    output.job.status === "completed"
-      ? ""
-      : `
-      <div>
-        <span class="label">Job</span>
-        <strong>${escapeHtml(output.job.id)}</strong>
-      </div>`;
 
   return `
     <section class="job-summary">
@@ -292,7 +285,6 @@ function renderReview(output: WorkflowOutput): string {
         <span class="label">Sermon</span>
         <strong>${escapeHtml(output.sermon.title)}</strong>
       </div>
-      ${jobSummaryHtml}
       <div>
         <span class="label">Clips</span>
         <strong>${String(output.clips.length)}</strong>
