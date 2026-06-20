@@ -301,7 +301,7 @@ function renderReview(output: WorkflowOutput): string {
     <section class="clip-grid">
       ${
         output.clips.length === 0
-          ? `<article class="clip-card"><div class="clip-body"><h2>${output.job.status === "failed" ? "Job failed" : "Processing clips"}</h2><p class="hook">${escapeHtml(output.job.failureReason ?? `Current status: ${output.job.status}`)}</p></div></article>`
+          ? (output.job.status === "failed" ? `<article class="clip-card"><div class="clip-body"><p class="hook">Job failed: ${escapeHtml(output.job.failureReason ?? "unknown error")}</p></div></article>` : "")
           : output.clips
               .map(({ candidate, renderedClip }, index) => {
                 return `

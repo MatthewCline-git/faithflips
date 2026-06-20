@@ -248,14 +248,13 @@ export function createWhisperTranscriptionProvider(input: {
       const audioDir = join(input.dataDir, "audio");
       await mkdir(audioDir, { recursive: true });
 
-      const audioPath = join(audioDir, `${transcriptionInput.media.videoId}-2x.mp3`);
-      const cached = await findExistingFile(audioDir, `${transcriptionInput.media.videoId}-2x`);
+      const audioPath = join(audioDir, `${transcriptionInput.media.videoId}.mp3`);
+      const cached = await findExistingFile(audioDir, `${transcriptionInput.media.videoId}.`);
 
       if (!cached) {
         input.logger({ event: "whisper_audio_extraction_started", videoId: transcriptionInput.media.videoId });
         const extract = await runCommand("ffmpeg", [
           "-i", transcriptionInput.media.mediaUrl,
-          "-filter:a", "atempo=2.0",
           "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k",
           "-y", audioPath
         ]);
@@ -291,15 +290,13 @@ export function createWhisperTranscriptionProvider(input: {
 
       const data = (await response.json()) as WhisperVerboseResponse;
 
-      // Audio was sped up 2x so Whisper timestamps are halved — multiply by 2 to restore.
-      // Use first/last word timestamps when available for tighter segment boundaries.
       const segments = data.segments
         .map((s) => {
           const firstWord = s.words?.[0];
           const lastWord = s.words?.[s.words.length - 1];
           return {
-            startSeconds: (firstWord?.start ?? s.start) * 2,
-            endSeconds: (lastWord?.end ?? s.end) * 2,
+            startSeconds: firstWord?.start ?? s.start,
+            endSeconds: lastWord?.end ?? s.end,
             text: s.text.trim()
           };
         })
