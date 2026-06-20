@@ -133,8 +133,7 @@ function buildClip(input: {
       cropVideoUrl: `https://example.com/fake-renders/${candidate.id}-crop.mp4`,
       thumbnailUrl: `https://example.com/fake-renders/${candidate.id}.jpg`,
       subtitleStyle: "bold-readable",
-      renderStatus: "completed",
-      previewStartSeconds: 0
+      renderStatus: "completed"
     }
   };
 }

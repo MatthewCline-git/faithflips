@@ -87,8 +87,7 @@ export const renderedClipSchema = z.object({
   cropVideoUrl: z.string().min(1),
   thumbnailUrl: z.string().min(1),
   subtitleStyle: z.string().min(1),
-  renderStatus: z.enum(["completed", "failed"]),
-  previewStartSeconds: z.number().nonnegative()
+  renderStatus: z.enum(["completed", "failed"])
 });
 
 export type RenderedClip = z.infer<typeof renderedClipSchema>;

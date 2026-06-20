@@ -137,8 +137,7 @@ describe("createFfmpegRenderer", () => {
         cropVideoUrl: "https://cdn.example.test/renders/sermon_1/clip_1-crop.mp4",
         thumbnailUrl: "https://cdn.example.test/renders/sermon_1/clip_1.jpg",
         subtitleStyle: "bold-readable",
-        renderStatus: "completed",
-        previewStartSeconds: 12.3456 - 10
+        renderStatus: "completed"
       }
     });
     // video render + thumbnail

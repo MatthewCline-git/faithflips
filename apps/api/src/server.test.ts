@@ -268,8 +268,7 @@ function createTestRenderer(): VideoRenderer {
           cropVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-crop.mp4`,
           thumbnailUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}.jpg`,
           subtitleStyle: "bold-readable",
-          renderStatus: "completed",
-          previewStartSeconds: 0
+          renderStatus: "completed"
         })
       );
     }

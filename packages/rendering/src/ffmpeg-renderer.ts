@@ -97,11 +97,9 @@ export function createFfmpegRenderer(input: {
   readonly storage: StorageClient;
   readonly workspace: RenderWorkspace;
   readonly ffmpegPath?: string;
-  readonly bufferSeconds?: number;
   readonly logger?: (event: Record<string, unknown>) => void;
 }): VideoRenderer {
   const ffmpegPath = input.ffmpegPath ?? "ffmpeg";
-  const bufferSeconds = input.bufferSeconds ?? 10;
   const logger = input.logger ?? (() => undefined);
 
   return {
@@ -160,9 +158,6 @@ export function createFfmpegRenderer(input: {
         aspectRatio: "9:16"
       });
 
-      const previewStart = Math.max(0, candidate.startSeconds - bufferSeconds);
-      const previewEnd = candidate.endSeconds + bufferSeconds;
-
       const videoResult = await input.commandRunner.run(
         ffmpegPath,
         buildVideoArgs({
@@ -170,9 +165,7 @@ export function createFfmpegRenderer(input: {
           sourceMedia,
           outputVideoPath: videoPath,
           subtitleStyle,
-          ...(subtitlePath ? { subtitlePath } : {}),
-          startOverride: previewStart,
-          endOverride: previewEnd
+          ...(subtitlePath ? { subtitlePath } : {})
         })
       );
       if (!videoResult.ok || videoResult.value.exitCode !== 0) {
@@ -208,10 +201,9 @@ export function createFfmpegRenderer(input: {
         });
       }
 
-      const bufferBefore = candidate.startSeconds - previewStart;
       const thumbnailResult = await input.commandRunner.run(
         ffmpegPath,
-        buildThumbnailArgs({ candidate, sourceVideoPath: videoPath, outputThumbnailPath, bufferBefore })
+        buildThumbnailArgs({ candidate, sourceVideoPath: videoPath, outputThumbnailPath })
       );
       if (!thumbnailResult.ok || thumbnailResult.value.exitCode !== 0) {
         const commandError = mapCommandFailure(thumbnailResult);
@@ -253,8 +245,7 @@ export function createFfmpegRenderer(input: {
         cropVideoUrl: videoObject.value.url,
         thumbnailUrl: thumbnailObject.value.url,
         subtitleStyle,
-        renderStatus: "completed",
-        previewStartSeconds: previewStart
+        renderStatus: "completed"
       });
       if (!renderedClip.success) {
         return err({
@@ -283,11 +274,9 @@ export function buildVideoArgs(input: {
   readonly subtitlePath?: string;
   readonly outputVideoPath: string;
   readonly subtitleStyle: z.infer<typeof subtitleStyleSchema>;
-  readonly startOverride?: number;
-  readonly endOverride?: number;
 }): readonly string[] {
-  const startSeconds = input.startOverride ?? input.candidate.startSeconds;
-  const endSeconds = input.endOverride ?? input.candidate.endSeconds;
+  const startSeconds = input.candidate.startSeconds;
+  const endSeconds = input.candidate.endSeconds;
   const videoFilter = cropFillFilter();
   const vf = input.subtitlePath
     ? `${videoFilter},${subtitleFilter(input.subtitlePath, input.subtitleStyle)}`
@@ -321,12 +310,8 @@ export function buildThumbnailArgs(input: {
   readonly candidate: ClipCandidate;
   readonly sourceVideoPath: string;
   readonly outputThumbnailPath: string;
-  readonly bufferBefore?: number;
 }): readonly string[] {
-  // Grabbed from the already-rendered (1080x1920) crop clip, so no scaling is needed.
-  // bufferBefore accounts for the ±buffer window: file t=0 is before the clip start.
-  const midpointSeconds =
-    (input.bufferBefore ?? 0) + (input.candidate.endSeconds - input.candidate.startSeconds) / 2;
+  const midpointSeconds = (input.candidate.endSeconds - input.candidate.startSeconds) / 2;
   return [
     "-y",
     "-ss",
