@@ -81,7 +81,7 @@ function render(): void {
       <div class="hero-entry${state.output ? " compact" : ""}">
         <header class="topbar">
           <div>
-            <p class="eyebrow">FaithTok</p>
+            <a href="/" class="eyebrow">FaithTok</a>
             <h1>Turn your sermon into viral clips</h1>
           </div>
         </header>

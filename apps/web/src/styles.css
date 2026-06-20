@@ -61,6 +61,11 @@ input {
   text-transform: uppercase;
 }
 
+a.eyebrow {
+  text-decoration: none;
+  display: inline-block;
+}
+
 h1,
 h2,
 p {
