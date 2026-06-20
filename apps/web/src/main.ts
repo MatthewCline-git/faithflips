@@ -42,6 +42,7 @@ type WorkflowOutput = {
 let state: ViewState = { status: "idle" };
 let activeProgressStatus: ActiveProgressStatus | null = null;
 let activeProgressStartedAt = Date.now();
+let jobStartedAt: number | null = null;
 let progressTimer: number | undefined;
 
 render();
@@ -72,6 +73,7 @@ function render(): void {
   } else {
     stopProgressAnimation();
     activeProgressStatus = null;
+    jobStartedAt = null;
   }
 
   appRoot.innerHTML = `
@@ -156,40 +158,24 @@ type ProgressStatus = ProcessingJobStatus | "submitting";
 type ActiveProgressStatus = Exclude<ProgressStatus, "completed" | "failed">;
 
 type ProgressPhase = {
-  readonly startPct: number;
-  readonly endPct: number;
   readonly expectedMs: number;
-  readonly caption: string;
+  readonly captions: readonly string[];
 };
 
 const progressPhases: Record<ActiveProgressStatus, ProgressPhase> = {
-  submitting: { startPct: 3, endPct: 8, expectedMs: 2_500, caption: "Submitting..." },
-  queued: { startPct: 8, endPct: 15, expectedMs: 8_000, caption: "Queued..." },
-  fetching_source: {
-    startPct: 15,
-    endPct: 32,
-    expectedMs: 20_000,
-    caption: "Downloading video..."
-  },
-  transcribing: {
-    startPct: 32,
-    endPct: 58,
-    expectedMs: 45_000,
-    caption: "Transcribing audio..."
-  },
-  selecting_clips: {
-    startPct: 58,
-    endPct: 76,
-    expectedMs: 30_000,
-    caption: "Finding viral moments..."
-  },
-  rendering_clips: {
-    startPct: 76,
-    endPct: 94,
-    expectedMs: 60_000,
-    caption: "Rendering clips..."
-  }
+  submitting:     { expectedMs: 2_500,  captions: ["Warming up..."] },
+  queued:         { expectedMs: 8_000,  captions: ["Warming up..."] },
+  fetching_source:{ expectedMs: 20_000, captions: ["Listening to your sermon..."] },
+  transcribing:   { expectedMs: 45_000, captions: ["Digesting the message...", "Extracting key points..."] },
+  selecting_clips:{ expectedMs: 30_000, captions: ["Finding viral moments...", "Writing scroll-stopping captions..."] },
+  rendering_clips:{ expectedMs: 60_000, captions: ["Editing your clips...", "Almost done..."] }
 };
+
+const progressPhaseOrder: readonly ActiveProgressStatus[] = [
+  "submitting", "queued", "fetching_source", "transcribing", "selecting_clips", "rendering_clips"
+];
+
+const totalExpectedMs = progressPhaseOrder.reduce((sum, p) => sum + progressPhases[p].expectedMs, 0);
 
 function currentProgressStatus(): ActiveProgressStatus | null {
   if (state.status === "idle") return null;
@@ -201,6 +187,14 @@ function currentProgressStatus(): ActiveProgressStatus | null {
 }
 
 function ensureProgressPhase(jobStatus: ActiveProgressStatus): void {
+  if (activeProgressStatus === null) {
+    // Back-calculate job start so the bar initialises at the right position
+    // when joining mid-flight (e.g. page reload while job is running).
+    const elapsedBefore = progressPhaseOrder
+      .slice(0, progressPhaseOrder.indexOf(jobStatus))
+      .reduce((sum, p) => sum + progressPhases[p].expectedMs, 0);
+    jobStartedAt = Date.now() - elapsedBefore;
+  }
   if (activeProgressStatus === jobStatus) return;
   activeProgressStatus = jobStatus;
   activeProgressStartedAt = Date.now();
@@ -210,12 +204,18 @@ function progressPresentation(
   jobStatus: ActiveProgressStatus,
   now: number
 ): { pct: number; caption: string } {
+  const totalElapsed = jobStartedAt !== null ? Math.max(0, now - jobStartedAt) : 0;
+  const linearProgress = Math.min(totalElapsed / totalExpectedMs, 0.98);
+  const pct = (1 - (1 - linearProgress) ** 3) * 94;
+
   const phase = progressPhases[jobStatus];
-  const elapsedMs = Math.max(0, now - activeProgressStartedAt);
-  const linearProgress = Math.min(elapsedMs / phase.expectedMs, 0.98);
-  const easedProgress = 1 - (1 - linearProgress) ** 3;
-  const pct = phase.startPct + (phase.endPct - phase.startPct) * easedProgress;
-  return { pct, caption: phase.caption };
+  const phaseElapsed = Math.max(0, now - activeProgressStartedAt);
+  const captionIntervalMs = phase.expectedMs / phase.captions.length;
+  const captionIndex = Math.min(
+    Math.floor(phaseElapsed / captionIntervalMs),
+    phase.captions.length - 1
+  );
+  return { pct, caption: phase.captions[captionIndex] ?? "" };
 }
 
 function startProgressAnimation(jobStatus: ActiveProgressStatus | null): void {
