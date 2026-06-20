@@ -25,7 +25,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN pnpm --filter @faithflips/web build
+RUN pnpm --filter @faithflips/web... build
 
 EXPOSE 4001
 
