@@ -115,7 +115,7 @@ function render(): void {
             </button>
           </div>
           <div class="form-options">
-            <label for="clip-count">Clips
+            <label for="clip-count">How many clips to extract?
               <input
                 id="clip-count"
                 name="clipCount"
