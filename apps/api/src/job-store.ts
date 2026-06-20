@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { generatedClipSchema, processingJobStatusSchema, sermonSchema } from "@faithflips/core";
+import { generatedClipSchema, processingJobStatusSchema, sermonSchema, transcriptSchema } from "@faithflips/core";
 import type { GeneratedClip, ProcessingJob, Sermon } from "@faithflips/core";
 import { z } from "zod";
 
@@ -14,7 +14,8 @@ export const persistedJobRecordSchema = z.object({
     updatedAt: z.iso.datetime(),
     failureReason: z.string().min(1).optional()
   }),
-  clips: z.array(generatedClipSchema)
+  clips: z.array(generatedClipSchema),
+  transcript: transcriptSchema.optional()
 });
 
 const persistedJobStoreSchema = z.object({

@@ -11,7 +11,8 @@ import {
   type Result,
   type Sermon,
   type SubmissionAccepted,
-  type SubmitSermonInput
+  type SubmitSermonInput,
+  type Transcript
 } from "@faithflips/core";
 import {
   createTranscriptIngestionWorkflow,
@@ -400,21 +401,27 @@ export function createProcessingService(input: {
         });
       }
 
-      const transcriptResult = await transcription.transcribe({
-        sermonId: record.sermon.id,
-        media: mediaResult.value
-      });
-      if (!transcriptResult.ok) {
-        return err({
-          type: "workflow_failed",
-          jobId: record.job.id,
-          message: `Failed to get transcript: ${transcriptResult.error.type}`
+      let rerenderTranscript: Transcript;
+      if (record.transcript) {
+        rerenderTranscript = record.transcript;
+      } else {
+        const transcriptResult = await transcription.transcribe({
+          sermonId: record.sermon.id,
+          media: mediaResult.value
         });
+        if (!transcriptResult.ok) {
+          return err({
+            type: "workflow_failed",
+            jobId: record.job.id,
+            message: `Failed to get transcript: ${transcriptResult.error.type}`
+          });
+        }
+        rerenderTranscript = transcriptResult.value.transcript;
       }
 
       const rendered = await renderer.render({
         candidate: updatedCandidate,
-        transcript: transcriptResult.value.transcript,
+        transcript: rerenderTranscript,
         sourceMedia: mediaResult.value
       });
 
@@ -574,7 +581,7 @@ async function failJob(
 function withSermonMetadata(
   record: PersistedJobRecord,
   metadata: SourceMediaMetadata,
-  transcript: { readonly segments: readonly { readonly endSeconds: number }[] }
+  transcript: Transcript
 ): PersistedJobRecord {
   const durationSeconds = Math.max(1, ...transcript.segments.map((segment) => segment.endSeconds));
   const sermon: Sermon = sermonSchema.parse({
@@ -583,7 +590,7 @@ function withSermonMetadata(
     speaker: metadata.authorName,
     durationSeconds
   });
-  return { ...record, sermon };
+  return { ...record, sermon, transcript };
 }
 
 function toProcessingJob(job: PersistedJobRecord["job"]): ProcessingJob {
