@@ -94,7 +94,7 @@ function render(): void {
       <div class="hero-entry${state.output ? " compact" : ""}">
         <header class="topbar">
           <div>
-            <p class="eyebrow">FaithFlips</p>
+            <p class="eyebrow">FaithTok</p>
             <h1>Weekly church clips from a sermon URL</h1>
           </div>
         </header>
@@ -127,11 +127,7 @@ function render(): void {
               />
             </label>
           </div>
-          ${state.error ? `<p class="error">${state.error}</p>` : ""}
         </form>
-
-        ${renderProgressBar()}
-        ${state.output ? "" : renderEmptyState()}
       </div>
 
       ${state.output ? renderReview(state.output) : ""}
