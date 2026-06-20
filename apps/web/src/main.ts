@@ -307,7 +307,7 @@ function renderReview(output: WorkflowOutput): string {
                 return `
             <article class="clip-card" data-clip-index="${String(index)}">
               <div class="video-container" data-clip-id="${candidate.id}">
-                <video class="clip-video" preload="auto">
+                <video class="clip-video" preload="auto" controls>
                   <source src="${renderedClip.cropVideoUrl}" type="video/mp4">
                 </video>
               </div>
