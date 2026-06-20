@@ -311,17 +311,20 @@ export function createProcessingService(input: {
       const renderedClips: GeneratedClip[] = [];
       for (const { candidate, clipIndex, rendered } of renderResults) {
         if (!rendered.ok) {
+          const renderError = rendered.error;
+          const renderMessage =
+            "message" in renderError ? renderError.message : renderError.type;
           logger({
             event: "clip_render_failed",
             sermonId: clipsSelected.value.sermon.id,
             jobId: clipsSelected.value.job.id,
             clipIndex,
-            error: rendered.error.type
+            error: renderMessage
           });
           return failJob(
             input.store,
             clipsSelected.value,
-            `Rendering failed: ${rendered.error.type}`,
+            `Rendering failed: ${renderMessage}`,
             now,
             logger
           );

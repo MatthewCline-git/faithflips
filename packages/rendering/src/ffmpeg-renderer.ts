@@ -223,6 +223,7 @@ export function createFfmpegRenderer(input: {
           clipCandidateId: candidate.id,
           step: "thumbnail",
           errorType: "render_failed",
+          message: commandError.message,
           exitCode: commandError.exitCode
         });
         return err({
@@ -302,6 +303,7 @@ export function createFfmpegRenderer(input: {
             step: "video",
             mode: variant.mode,
             errorType: "render_failed",
+            message: commandError.message,
             exitCode: commandError.exitCode
           });
           return err({
@@ -358,6 +360,7 @@ export function createFfmpegRenderer(input: {
           clipCandidateId: candidate.id,
           step: "stitch",
           errorType: "render_failed",
+          message: commandError.message,
           exitCode: commandError.exitCode
         });
         return err({
