@@ -134,7 +134,8 @@ function buildClip(input: {
       blurVideoUrl: `https://example.com/fake-renders/${candidate.id}-blur.mp4`,
       thumbnailUrl: `https://example.com/fake-renders/${candidate.id}.jpg`,
       subtitleStyle: "bold-readable",
-      renderStatus: "completed"
+      renderStatus: "completed",
+      previewStartSeconds: 0
     }
   };
 }
