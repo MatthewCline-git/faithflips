@@ -242,6 +242,8 @@ async function downloadYouTubeMedia(input: {
     "bv*[ext=mp4][vcodec^=vp9]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
     "--merge-output-format",
     "mp4",
+    "--extractor-args",
+    "youtube:player_client=web",
     "-o",
     outputTemplate,
     input.sourceUrl
@@ -293,10 +295,12 @@ async function downloadYouTubeCaptions(input: {
     "--write-subs",
     "--write-auto-subs",
     "--sub-langs",
-    "en.*",
+    "en",
     "--sub-format",
     "vtt",
     "--no-playlist",
+    "--extractor-args",
+    "youtube:player_client=web",
     "-o",
     join(captionsDir, `${input.videoId}.%(ext)s`),
     input.sourceUrl

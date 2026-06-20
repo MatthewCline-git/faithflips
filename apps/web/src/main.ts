@@ -40,6 +40,7 @@ type WorkflowOutput = {
 };
 
 let state: ViewState = { status: "idle" };
+let selectedClipCount = 6;
 let activeProgressStatus: ActiveProgressStatus | null = null;
 let activeProgressStartedAt = Date.now();
 let jobStartedAt: number | null = null;
@@ -55,6 +56,7 @@ async function loadInitialRun(): Promise<void> {
   const output = await fetchRun(route.youtubeContentId, route.runNumber);
   if (!output) return;
 
+  selectedClipCount = output.sermon.clipCount;
   state = {
     status:
       output.job.status === "completed" || output.job.status === "failed" ? "idle" : "polling",
@@ -112,7 +114,7 @@ function render(): void {
                 class="clip-count-input"
                 min="1"
                 max="12"
-                value="6"
+                value="${String(selectedClipCount)}"
               />
             </label>
           </div>
@@ -358,6 +360,7 @@ async function submitSermon(event: Event): Promise<void> {
     return;
   }
 
+  selectedClipCount = parsed.data.clipCount;
   state = withCurrentOutput({ status: "submitting" });
   render();
 
