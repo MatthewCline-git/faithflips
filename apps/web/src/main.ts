@@ -8,7 +8,7 @@ import type {
 } from "@faithflips/core";
 import "./styles.css";
 
-const apiUrl = import.meta.env["VITE_API_URL"] ?? "http://localhost:4000";
+const apiUrl = import.meta.env["VITE_API_URL"] ?? "";
 const defaultSourceUrl = "https://www.youtube.com/watch?v=sCMVbmgrtZE";
 const appRoot = getAppRoot();
 

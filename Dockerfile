@@ -25,4 +25,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-EXPOSE 4001 5175
+RUN pnpm --filter @faithflips/web build
+
+EXPOSE 4001
+
+CMD ["node_modules/.bin/tsx", "apps/api/src/index.ts"]

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createFileJobStore } from "./job-store.js";
 import { createLogger } from "./logger.js";
 import { createServer } from "./server.js";
@@ -11,12 +12,16 @@ const dataDir = process.env["FAITHFLIPS_DATA_DIR"] ?? resolve(process.cwd(), ".f
 const jobStorePath = process.env["FAITHFLIPS_JOB_STORE_PATH"] ?? resolve(dataDir, "jobs.json");
 const publicBaseUrl =
   process.env["FAITHFLIPS_PUBLIC_BASE_URL"] ?? `http://127.0.0.1:${String(port)}`;
+const srcDir = fileURLToPath(new URL(".", import.meta.url));
+const webDistDir =
+  process.env["FAITHFLIPS_WEB_DIST_DIR"] ?? resolve(srcDir, "../../../apps/web/dist");
 const logger = createLogger();
 
 const server = createServer({
   store: createFileJobStore({ filePath: jobStorePath }),
   dataDir,
   publicBaseUrl,
+  webDistDir,
   logger
 });
 

@@ -42,6 +42,7 @@ export function createServer(input: {
   readonly store: JobStore;
   readonly dataDir: string;
   readonly publicBaseUrl: string;
+  readonly webDistDir?: string;
   readonly logger?: (event: Record<string, unknown>) => void;
 }) {
   const processing = createProcessingService({
@@ -52,7 +53,7 @@ export function createServer(input: {
   });
 
   return createHttpServer((request, response) => {
-    void handleRequest(request, response, processing, join(input.dataDir, "public"));
+    void handleRequest(request, response, processing, join(input.dataDir, "public"), input.webDistDir);
   });
 }
 
@@ -265,7 +266,8 @@ async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   processing: ProcessingService,
-  assetRoot: string
+  assetRoot: string,
+  webDistDir?: string
 ): Promise<void> {
   try {
     response.setHeader("Access-Control-Allow-Origin", "*");
@@ -282,6 +284,17 @@ async function handleRequest(
     if (request.method === "GET" && url.pathname.startsWith("/assets/")) {
       await writeAsset(response, assetRoot, url.pathname);
       return;
+    }
+
+    if (webDistDir && request.method === "GET") {
+      if (url.pathname === "/" || url.pathname === "/index.html") {
+        await writeStaticFile(response, webDistDir, "index.html");
+        return;
+      }
+      if (url.pathname.startsWith("/_app/")) {
+        await writeStaticFile(response, webDistDir, url.pathname.slice(1));
+        return;
+      }
     }
 
     const body = request.method === "POST" ? await readJsonBody(request) : undefined;
@@ -330,6 +343,40 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
   response.end(JSON.stringify(body));
 }
 
+async function writeStaticFile(
+  response: ServerResponse,
+  webDistDir: string,
+  relativePath: string
+): Promise<void> {
+  const filePath = normalize(join(webDistDir, decodeURIComponent(relativePath)));
+  if (relative(webDistDir, filePath).startsWith("..")) {
+    writeJson(response, 404, {
+      error: { code: "not_found", message: "Not found" }
+    } satisfies ApiErrorResponse);
+    return;
+  }
+  try {
+    const fileStat = await stat(filePath);
+    if (!fileStat.isFile()) throw new Error("Not a file");
+    // index.html must never be cached so the browser always fetches the latest
+    // bundle references. Hashed assets (_app/*) are safe to cache forever since
+    // their filenames change when their content changes.
+    const cacheControl = relativePath === "index.html"
+      ? "no-cache"
+      : "public, max-age=31536000, immutable";
+    response.writeHead(200, {
+      "content-type": contentTypeForPath(filePath),
+      "content-length": String(fileStat.size),
+      "cache-control": cacheControl
+    });
+    createReadStream(filePath).pipe(response);
+  } catch {
+    writeJson(response, 404, {
+      error: { code: "not_found", message: "Not found" }
+    } satisfies ApiErrorResponse);
+  }
+}
+
 async function writeAsset(
   response: ServerResponse,
   assetRoot: string,
@@ -363,12 +410,20 @@ async function writeAsset(
 }
 
 function contentTypeForPath(filePath: string): string {
-  const extension = extname(filePath).toLowerCase();
-  if (extension === ".mp4") {
-    return "video/mp4";
+  switch (extname(filePath).toLowerCase()) {
+    case ".mp4": return "video/mp4";
+    case ".jpg":
+    case ".jpeg": return "image/jpeg";
+    case ".png": return "image/png";
+    case ".svg": return "image/svg+xml";
+    case ".ico": return "image/x-icon";
+    case ".js":
+    case ".mjs": return "application/javascript";
+    case ".css": return "text/css";
+    case ".html": return "text/html; charset=utf-8";
+    case ".json": return "application/json";
+    case ".woff": return "font/woff";
+    case ".woff2": return "font/woff2";
+    default: return "application/octet-stream";
   }
-  if (extension === ".jpg" || extension === ".jpeg") {
-    return "image/jpeg";
-  }
-  return "application/octet-stream";
 }
