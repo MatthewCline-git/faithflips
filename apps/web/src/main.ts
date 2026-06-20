@@ -310,24 +310,8 @@ function renderReview(output: WorkflowOutput): string {
                 </video>
               </div>
               <div class="clip-body">
-                <h2>${escapeHtml(candidate.title)}</h2>
                 <p class="hook">${escapeHtml(candidate.hook)}</p>
                 <p class="caption">${escapeHtml(candidate.postCaption)}</p>
-                <div class="timestamp-controls">
-                  <label>
-                    Start
-                    <input type="text" class="timestamp-input" name="startSeconds"
-                           value="${formatTime(candidate.startSeconds)}" inputmode="decimal">
-                  </label>
-                  <label>
-                    End
-                    <input type="text" class="timestamp-input" name="endSeconds"
-                           value="${formatTime(candidate.endSeconds)}" inputmode="decimal">
-                  </label>
-                  <button type="button" class="rerender-btn" data-clip-id="${candidate.id}">
-                    Re-render
-                  </button>
-                </div>
                 <div class="clip-actions">
                   <button type="button" class="download-btn" data-clip-id="${candidate.id}">Download MP4</button>
                 </div>
@@ -367,14 +351,24 @@ async function submitSermon(event: Event): Promise<void> {
     return;
   }
 
+  const youtubeContentId = extractYouTubeVideoId(parsed.data.sourceUrl);
+  if (!youtubeContentId) {
+    state = withCurrentOutput({ status: "idle", error: "Enter a valid YouTube URL." });
+    render();
+    return;
+  }
+
   state = withCurrentOutput({ status: "submitting" });
   render();
 
-  const response = await fetch(`${apiUrl}/sermons`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(parsed.data)
-  });
+  const response = await fetch(
+    `${apiUrl}/videos/${encodeURIComponent(youtubeContentId)}/runs`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clipCount: parsed.data.clipCount })
+    }
+  );
 
   if (!response.ok) {
     state = withCurrentOutput({ status: "idle", error: "The sermon could not be submitted." });
@@ -392,14 +386,6 @@ async function submitSermon(event: Event): Promise<void> {
     return;
   }
   setRunRoute(accepted.youtubeContentId, accepted.runNumber);
-  if (accepted.status !== "queued") {
-    const cached = await fetchRun(accepted.youtubeContentId, accepted.runNumber);
-    state = cached
-      ? { status: "idle", output: cached }
-      : { status: "idle", error: "The existing job could not be loaded." };
-    render();
-    return;
-  }
 
   state = { status: "polling" };
   render();
@@ -674,6 +660,20 @@ function escapeHtml(value: string): string {
 
 function withCurrentOutput(next: Omit<ViewState, "output">): ViewState {
   return state.output === undefined ? next : { ...next, output: state.output };
+}
+
+function extractYouTubeVideoId(sourceUrl: string): string | null {
+  try {
+    const url = new URL(sourceUrl);
+    const hostname = url.hostname.replace(/^www\./, "");
+    const videoId =
+      hostname === "youtu.be"
+        ? url.pathname.split("/").filter(Boolean)[0]
+        : url.searchParams.get("v");
+    return videoId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {
