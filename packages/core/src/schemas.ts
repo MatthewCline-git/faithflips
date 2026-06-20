@@ -122,13 +122,10 @@ export const renderedClipSchema = z.object({
   thumbnailUrl: z.url(),
   subtitleStyle: z.string().min(1),
   renderStatus: z.enum(["completed", "failed"]),
-  // Optional buffered preview (crop only, ±bufferSeconds around the clip). When present,
-  // the editor plays this file instead of cropVideoUrl so small timestamp adjustments
-  // can be previewed instantly without a re-render. previewStartSeconds is the sermon-time
-  // offset where the preview file begins, letting the player compute the clip's position
-  // within the file.
-  previewUrl: z.url().optional(),
-  previewStartSeconds: z.number().nonnegative().optional()
+  // Both crop and blur are rendered ±bufferSeconds around the clip so the editor can scrub
+  // outside the clip bounds without re-rendering. previewStartSeconds is the sermon-time
+  // offset where both files begin, used by the player to compute clip-relative positions.
+  previewStartSeconds: z.number().nonnegative()
 });
 
 export type RenderedClip = z.infer<typeof renderedClipSchema>;

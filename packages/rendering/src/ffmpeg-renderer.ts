@@ -167,54 +167,35 @@ export function createFfmpegRenderer(input: {
         aspectRatio: "9:16"
       });
 
-      // Render both full-length variants and the buffered preview concurrently — all read
-      // from the same source file and write to separate output paths so there's no conflict.
+      // Both variants are rendered ±bufferSeconds around the clip so the editor can scrub
+      // outside the clip bounds instantly. All reads from the same source, separate outputs.
       const previewStart = Math.max(0, candidate.startSeconds - bufferSeconds);
       const previewEnd = candidate.endSeconds + bufferSeconds;
-      const previewVideoPath = variantPath(input.workspace, candidate.id, "preview");
 
-      const [cropUrl, blurUrl, previewUrl] = await Promise.all([
+      const [cropUrl, blurUrl] = await Promise.all([
         renderAndUpload({
           mode: "crop-fill",
           outputVideoPath: cropVideoPath,
-          key: `renders/${candidate.sermonId}/${candidate.id}-crop.mp4`
+          key: `renders/${candidate.sermonId}/${candidate.id}-crop.mp4`,
+          startOverride: previewStart,
+          endOverride: previewEnd
         }),
         renderAndUpload({
           mode: "blur-pad",
           outputVideoPath: blurVideoPath,
-          key: `renders/${candidate.sermonId}/${candidate.id}-blur.mp4`
-        }),
-        // Best-effort buffered preview: ±bufferSeconds around the clip for instant scrubbing.
-        // Failure is non-fatal — crop/blur still work.
-        (async (): Promise<string | undefined> => {
-          const result = await input.commandRunner.run(
-            ffmpegPath,
-            buildVideoArgs({
-              candidate,
-              sourceMedia,
-              mode: "crop-fill",
-              outputVideoPath: previewVideoPath,
-              subtitleStyle,
-              startOverride: previewStart,
-              endOverride: previewEnd
-            })
-          );
-          if (!result.ok || result.value.exitCode !== 0) return undefined;
-          const upload = await input.storage.putObject({
-            key: `renders/${candidate.sermonId}/${candidate.id}-preview.mp4`,
-            filePath: previewVideoPath,
-            contentType: "video/mp4"
-          });
-          return upload.ok ? upload.value.url : undefined;
-        })()
+          key: `renders/${candidate.sermonId}/${candidate.id}-blur.mp4`,
+          startOverride: previewStart,
+          endOverride: previewEnd
+        })
       ]);
 
       if (!cropUrl.ok) return cropUrl;
       if (!blurUrl.ok) return blurUrl;
 
+      const bufferBefore = candidate.startSeconds - previewStart;
       const thumbnailResult = await input.commandRunner.run(
         ffmpegPath,
-        buildThumbnailArgs({ candidate, sourceVideoPath: cropVideoPath, outputThumbnailPath })
+        buildThumbnailArgs({ candidate, sourceVideoPath: cropVideoPath, outputThumbnailPath, bufferBefore })
       );
       if (!thumbnailResult.ok || thumbnailResult.value.exitCode !== 0) {
         const commandError = mapCommandFailure(thumbnailResult);
@@ -258,7 +239,7 @@ export function createFfmpegRenderer(input: {
         thumbnailUrl: thumbnailObject.value.url,
         subtitleStyle,
         renderStatus: "completed",
-        ...(previewUrl ? { previewUrl, previewStartSeconds: previewStart } : {})
+        previewStartSeconds: previewStart
       });
       if (!renderedClip.success) {
         return err({
@@ -283,6 +264,8 @@ export function createFfmpegRenderer(input: {
         readonly mode: FillMode;
         readonly outputVideoPath: string;
         readonly key: string;
+        readonly startOverride?: number;
+        readonly endOverride?: number;
       }): Promise<Result<string, RenderError>> {
         const result = await input.commandRunner.run(
           ffmpegPath,
@@ -292,7 +275,9 @@ export function createFfmpegRenderer(input: {
             mode: variant.mode,
             outputVideoPath: variant.outputVideoPath,
             subtitleStyle,
-            ...(subtitlePath ? { subtitlePath } : {})
+            ...(subtitlePath ? { subtitlePath } : {}),
+            ...(variant.startOverride !== undefined ? { startOverride: variant.startOverride } : {}),
+            ...(variant.endOverride !== undefined ? { endOverride: variant.endOverride } : {})
           })
         );
         if (!result.ok || result.value.exitCode !== 0) {
@@ -334,10 +319,17 @@ export function createFfmpegRenderer(input: {
 
     async stitch(stitchInput) {
       const { candidate } = stitchInput;
+      // crop/blur files start at previewStart, not clipStart — offset clip-relative segments
+      // so trim values are file-relative.
+      const clipOffset = Math.min(candidate.startSeconds, bufferSeconds);
       const segments = buildFillSegments(
         stitchInput.blurPadSpans,
         candidate.endSeconds - candidate.startSeconds
-      );
+      ).map((s) => ({
+        ...s,
+        startSeconds: s.startSeconds + clipOffset,
+        endSeconds: s.endSeconds + clipOffset
+      }));
 
       const cropVideoPath = variantPath(input.workspace, candidate.id, "crop");
       const blurVideoPath = variantPath(input.workspace, candidate.id, "blur");
@@ -399,7 +391,7 @@ export function createFfmpegRenderer(input: {
 function variantPath(
   workspace: RenderWorkspace,
   clipCandidateId: string,
-  variant: "crop" | "blur" | "final" | "preview"
+  variant: "crop" | "blur" | "final"
 ): string {
   return workspace.createPath({
     clipCandidateId: `${clipCandidateId}-${variant}`,
@@ -452,9 +444,12 @@ export function buildThumbnailArgs(input: {
   readonly candidate: ClipCandidate;
   readonly sourceVideoPath: string;
   readonly outputThumbnailPath: string;
+  readonly bufferBefore?: number;
 }): readonly string[] {
   // Grabbed from the already-rendered (1080x1920) crop clip, so no scaling is needed.
-  const midpointSeconds = (input.candidate.endSeconds - input.candidate.startSeconds) / 2;
+  // bufferBefore accounts for the ±buffer window: file t=0 is before the clip start.
+  const midpointSeconds =
+    (input.bufferBefore ?? 0) + (input.candidate.endSeconds - input.candidate.startSeconds) / 2;
   return [
     "-y",
     "-ss",

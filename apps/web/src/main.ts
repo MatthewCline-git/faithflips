@@ -325,23 +325,20 @@ function renderReview(output: WorkflowOutput): string {
           ? `<article class="clip-card"><div class="clip-body"><h2>${output.job.status === "failed" ? "Job failed" : "Processing clips"}</h2><p class="hook">${escapeHtml(output.job.failureReason ?? `Current status: ${output.job.status}`)}</p></div></article>`
           : output.clips
               .map(({ candidate, renderedClip }, index) => {
-                // Use the buffered preview for the crop video when available so small
-                // timestamp adjustments can be previewed instantly without re-rendering.
-                const previewStartSeconds =
-                  renderedClip.previewStartSeconds ?? candidate.startSeconds;
-                const previewUrlAttribute = renderedClip.previewUrl
-                  ? ` data-preview-url="${escapeHtml(renderedClip.previewUrl)}"`
-                  : "";
+                // crop and blur are rendered ±bufferSeconds around the clip so the editor
+                // can scrub outside the clip bounds without re-rendering.
+                const previewStartSeconds = renderedClip.previewStartSeconds;
+                const bufferBefore = candidate.startSeconds - previewStartSeconds;
 
                 return `
             <article class="clip-card" data-clip-index="${String(index)}">
               <div class="video-container"
                 data-clip-id="${candidate.id}"
-                data-buffer-before="0"
+                data-buffer-before="${String(bufferBefore)}"
                 data-clip-start="${String(candidate.startSeconds)}"
                 data-clip-end="${String(candidate.endSeconds)}"
                 data-crop-url="${escapeHtml(renderedClip.cropVideoUrl)}"
-                data-preview-start="${String(previewStartSeconds)}"${previewUrlAttribute}>
+                data-preview-start="${String(previewStartSeconds)}">
                 <video class="clip-video crop" preload="auto" data-active-url="${escapeHtml(renderedClip.cropVideoUrl)}">
                   <source src="${renderedClip.cropVideoUrl}" type="video/mp4">
                 </video>
@@ -636,7 +633,6 @@ function replaceClip(clipId: string, updated: GeneratedClip): void {
       blurVideoUrl: rendered.blurVideoUrl + cacheBuster,
       thumbnailUrl: rendered.thumbnailUrl + cacheBuster,
       ...(rendered.finalVideoUrl ? { finalVideoUrl: rendered.finalVideoUrl + cacheBuster } : {}),
-      ...(rendered.previewUrl ? { previewUrl: rendered.previewUrl + cacheBuster } : {})
     }
   };
   state = { ...state, output: { ...state.output, clips: newClips } };
@@ -801,7 +797,6 @@ function wireFillTimelines(): void {
     const clipEnd = Number(container.dataset["clipEnd"] ?? "0");
     const previewStart = Number(container.dataset["previewStart"] ?? String(clipStart));
     const cropUrl = container.dataset["cropUrl"];
-    const previewUrl = container.dataset["previewUrl"];
     const getBufferBefore = (): number => Number(container.dataset["bufferBefore"] ?? "0");
 
     // Returns the selected window in clip-relative time (0 = clipStart).
@@ -813,33 +808,11 @@ function wireFillTimelines(): void {
       return { wStart, wDuration: wEnd - wStart };
     };
 
+    // crop and blur both start at previewStart — always offset by previewStart.
+    // bufferBefore (= clipStart - previewStart) stays constant and is used by all
+    // clip-relative time calculations throughout the player.
     const seekToSermonTime = (sermonTime: number): void => {
-      const needsPreview = sermonTime < clipStart || sermonTime > clipEnd;
-      const targetUrl = needsPreview && previewUrl ? previewUrl : cropUrl;
-      const targetBufferBefore =
-        needsPreview && previewUrl ? Math.max(0, clipStart - previewStart) : 0;
-      const targetCurrentTime =
-        targetBufferBefore > 0
-          ? Math.max(0, sermonTime - previewStart)
-          : Math.max(0, sermonTime - clipStart);
-
-      if (targetUrl && crop.dataset["activeUrl"] !== targetUrl) {
-        container.dataset["bufferBefore"] = String(targetBufferBefore);
-        crop.dataset["activeUrl"] = targetUrl;
-        crop.src = targetUrl;
-        crop.addEventListener(
-          "loadedmetadata",
-          () => {
-            crop.currentTime = targetCurrentTime;
-          },
-          { once: true }
-        );
-        crop.load();
-        return;
-      }
-
-      container.dataset["bufferBefore"] = String(targetBufferBefore);
-      crop.currentTime = targetCurrentTime;
+      crop.currentTime = Math.max(0, sermonTime - previewStart);
     };
 
     const redrawTimelineWindow = (): void => {
@@ -874,7 +847,7 @@ function wireFillTimelines(): void {
       }
     };
 
-    // crop → blur sync with buffer offset compensation
+    // crop → blur sync — both files start at previewStart so no offset needed.
     crop.addEventListener("play", () => {
       if (blur.paused) void blur.play().catch(() => undefined);
     });
@@ -882,10 +855,7 @@ function wireFillTimelines(): void {
       if (!blur.paused) blur.pause();
     });
     crop.addEventListener("seeking", () => {
-      const bufferBefore = getBufferBefore();
-      const blurTarget = Math.max(0, crop.currentTime - bufferBefore);
-      // Don't seek blur into the extended region — it only covers [0, blur.duration].
-      // A clamped seek would fire blur.seeking, which would fight the crop back.
+      const blurTarget = crop.currentTime;
       if (Number.isFinite(blur.duration) && blurTarget > blur.duration - 0.05) return;
       if (Math.abs(blur.currentTime - blurTarget) > 0.05) blur.currentTime = blurTarget;
     });
@@ -905,9 +875,7 @@ function wireFillTimelines(): void {
       if (!crop.paused && !blur.ended) crop.pause();
     });
     blur.addEventListener("seeking", () => {
-      const bufferBefore = getBufferBefore();
-      const cropTarget = blur.currentTime + bufferBefore;
-      if (Math.abs(crop.currentTime - cropTarget) > 0.05) crop.currentTime = cropTarget;
+      if (Math.abs(crop.currentTime - blur.currentTime) > 0.05) crop.currentTime = blur.currentTime;
     });
     blur.addEventListener("ratechange", () => {
       if (crop.playbackRate !== blur.playbackRate) crop.playbackRate = blur.playbackRate;
