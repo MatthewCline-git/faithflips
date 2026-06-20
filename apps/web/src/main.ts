@@ -84,7 +84,7 @@ function render(): void {
           </div>
         </header>
 
-        <p class="hero-subtitle">Reach the next generation of Christians where they are</p>
+        <p class="hero-subtitle">Reach the next generation of believers where they are</p>
 
         <form class="submit-panel" id="sermon-form">
           <label for="source-url">Sermon YouTube URL</label>
