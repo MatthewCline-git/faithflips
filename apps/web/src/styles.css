@@ -57,7 +57,7 @@ input {
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0;
-  margin: 0 0 6px;
+  margin: 0 0 12px;
   text-transform: uppercase;
 }
 
@@ -77,7 +77,7 @@ h1 {
 .hero-subtitle {
   color: #5d675f;
   font-size: clamp(0.75rem, 3vw, 2.25rem);
-  margin: 20px 0;
+  margin: 6px 0 12px;
   opacity: 0.6;
 }
 
