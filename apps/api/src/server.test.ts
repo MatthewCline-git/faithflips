@@ -274,7 +274,8 @@ function createTestRenderer(): VideoRenderer {
           blurVideoUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}-blur.mp4`,
           thumbnailUrl: `${base}/${input.candidate.sermonId}/${input.candidate.id}.jpg`,
           subtitleStyle: "bold-readable",
-          renderStatus: "completed"
+          renderStatus: "completed",
+          previewStartSeconds: 0
         })
       );
     },
