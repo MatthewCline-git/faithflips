@@ -218,10 +218,17 @@ export function createLocalRenderWorkspace(input: { readonly workDir: string }):
   };
 }
 
+type WhisperWord = {
+  readonly word: string;
+  readonly start: number;
+  readonly end: number;
+};
+
 type WhisperSegment = {
   readonly start: number;
   readonly end: number;
   readonly text: string;
+  readonly words?: readonly WhisperWord[];
 };
 
 type WhisperVerboseResponse = {
@@ -268,6 +275,8 @@ export function createWhisperTranscriptionProvider(input: {
       form.append("file", new Blob([audioData], { type: "audio/mpeg" }), "audio.mp3");
       form.append("model", "whisper-1");
       form.append("response_format", "verbose_json");
+      form.append("timestamp_granularities[]", "segment");
+      form.append("timestamp_granularities[]", "word");
 
       const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
         method: "POST",
@@ -282,9 +291,18 @@ export function createWhisperTranscriptionProvider(input: {
 
       const data = (await response.json()) as WhisperVerboseResponse;
 
-      // Audio was sped up 2x so Whisper timestamps are halved — multiply by 2 to restore
+      // Audio was sped up 2x so Whisper timestamps are halved — multiply by 2 to restore.
+      // Use first/last word timestamps when available for tighter segment boundaries.
       const segments = data.segments
-        .map((s) => ({ startSeconds: s.start * 2, endSeconds: s.end * 2, text: s.text.trim() }))
+        .map((s) => {
+          const firstWord = s.words?.[0];
+          const lastWord = s.words?.[s.words.length - 1];
+          return {
+            startSeconds: (firstWord?.start ?? s.start) * 2,
+            endSeconds: (lastWord?.end ?? s.end) * 2,
+            text: s.text.trim()
+          };
+        })
         .filter((s) => s.text.length > 0);
 
       input.logger({ event: "whisper_transcription_completed", sermonId: transcriptionInput.sermonId, segmentCount: segments.length });
