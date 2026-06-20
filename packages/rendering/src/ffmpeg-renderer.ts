@@ -167,50 +167,50 @@ export function createFfmpegRenderer(input: {
         aspectRatio: "9:16"
       });
 
-      // Render both full-length variants up front so the editor can preview either one
-      // instantly and the final clip can be stitched locally without re-touching the source.
-      const cropUrl = await renderAndUpload({
-        mode: "crop-fill",
-        outputVideoPath: cropVideoPath,
-        key: `renders/${candidate.sermonId}/${candidate.id}-crop.mp4`
-      });
-      if (!cropUrl.ok) return cropUrl;
-
-      const blurUrl = await renderAndUpload({
-        mode: "blur-pad",
-        outputVideoPath: blurVideoPath,
-        key: `renders/${candidate.sermonId}/${candidate.id}-blur.mp4`
-      });
-      if (!blurUrl.ok) return blurUrl;
-
-      // Best-effort buffered preview: ±bufferSeconds around the clip for instant scrubbing
-      // in the editor without re-rendering. Failure is non-fatal — crop/blur still work.
+      // Render both full-length variants and the buffered preview concurrently — all read
+      // from the same source file and write to separate output paths so there's no conflict.
       const previewStart = Math.max(0, candidate.startSeconds - bufferSeconds);
       const previewEnd = candidate.endSeconds + bufferSeconds;
       const previewVideoPath = variantPath(input.workspace, candidate.id, "preview");
-      let previewUrl: string | undefined;
-      const previewRenderResult = await input.commandRunner.run(
-        ffmpegPath,
-        buildVideoArgs({
-          candidate,
-          sourceMedia,
+
+      const [cropUrl, blurUrl, previewUrl] = await Promise.all([
+        renderAndUpload({
           mode: "crop-fill",
-          outputVideoPath: previewVideoPath,
-          subtitleStyle,
-          startOverride: previewStart,
-          endOverride: previewEnd
-        })
-      );
-      if (previewRenderResult.ok && previewRenderResult.value.exitCode === 0) {
-        const previewUpload = await input.storage.putObject({
-          key: `renders/${candidate.sermonId}/${candidate.id}-preview.mp4`,
-          filePath: previewVideoPath,
-          contentType: "video/mp4"
-        });
-        if (previewUpload.ok) {
-          previewUrl = previewUpload.value.url;
-        }
-      }
+          outputVideoPath: cropVideoPath,
+          key: `renders/${candidate.sermonId}/${candidate.id}-crop.mp4`
+        }),
+        renderAndUpload({
+          mode: "blur-pad",
+          outputVideoPath: blurVideoPath,
+          key: `renders/${candidate.sermonId}/${candidate.id}-blur.mp4`
+        }),
+        // Best-effort buffered preview: ±bufferSeconds around the clip for instant scrubbing.
+        // Failure is non-fatal — crop/blur still work.
+        (async (): Promise<string | undefined> => {
+          const result = await input.commandRunner.run(
+            ffmpegPath,
+            buildVideoArgs({
+              candidate,
+              sourceMedia,
+              mode: "crop-fill",
+              outputVideoPath: previewVideoPath,
+              subtitleStyle,
+              startOverride: previewStart,
+              endOverride: previewEnd
+            })
+          );
+          if (!result.ok || result.value.exitCode !== 0) return undefined;
+          const upload = await input.storage.putObject({
+            key: `renders/${candidate.sermonId}/${candidate.id}-preview.mp4`,
+            filePath: previewVideoPath,
+            contentType: "video/mp4"
+          });
+          return upload.ok ? upload.value.url : undefined;
+        })()
+      ]);
+
+      if (!cropUrl.ok) return cropUrl;
+      if (!blurUrl.ok) return blurUrl;
 
       const thumbnailResult = await input.commandRunner.run(
         ffmpegPath,

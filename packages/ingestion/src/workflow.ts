@@ -56,7 +56,11 @@ export function createTranscriptIngestionWorkflow(input: {
         sourceType: "youtube_url"
       });
 
-      const metadata = await input.sourceMedia.getMetadata(workflowInput);
+      const [metadata, media] = await Promise.all([
+        input.sourceMedia.getMetadata(workflowInput),
+        input.sourceMedia.getMedia(workflowInput)
+      ]);
+
       if (!metadata.ok) {
         logger({
           event: "source_fetch_failed",
@@ -67,7 +71,6 @@ export function createTranscriptIngestionWorkflow(input: {
         return err({ type: "source_media_failed", step: "metadata", error: metadata.error });
       }
 
-      const media = await input.sourceMedia.getMedia(workflowInput);
       if (!media.ok) {
         logger({
           event: "source_fetch_failed",

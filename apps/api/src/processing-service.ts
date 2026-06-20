@@ -284,27 +284,31 @@ export function createProcessingService(input: {
         clipCount: clipTotal
       });
 
+      const renderResults = await Promise.all(
+        clipSelection.value.output.clips.map(async (rawCandidate, i) => {
+          const parsedCandidate = clipCandidateSchema.parse(rawCandidate);
+          const clipIndex = i + 1;
+          logger({
+            event: "clip_render_started",
+            sermonId: clipsSelected.value.sermon.id,
+            jobId: clipsSelected.value.job.id,
+            clipIndex,
+            clipTotal,
+            clipTitle: parsedCandidate.title,
+            startSeconds: parsedCandidate.startSeconds,
+            endSeconds: parsedCandidate.endSeconds
+          });
+          const rendered = await renderer.render({
+            candidate: parsedCandidate,
+            transcript: ingestionResult.value.transcript,
+            sourceMedia: ingestionResult.value.media
+          });
+          return { candidate: parsedCandidate, clipIndex, rendered };
+        })
+      );
+
       const renderedClips: GeneratedClip[] = [];
-      for (const [i, candidate] of clipSelection.value.output.clips.entries()) {
-        const parsedCandidate = clipCandidateSchema.parse(candidate);
-        const clipIndex = i + 1;
-
-        logger({
-          event: "clip_render_started",
-          sermonId: clipsSelected.value.sermon.id,
-          jobId: clipsSelected.value.job.id,
-          clipIndex,
-          clipTotal,
-          clipTitle: parsedCandidate.title,
-          startSeconds: parsedCandidate.startSeconds,
-          endSeconds: parsedCandidate.endSeconds
-        });
-
-        const rendered = await renderer.render({
-          candidate: parsedCandidate,
-          transcript: ingestionResult.value.transcript,
-          sourceMedia: ingestionResult.value.media
-        });
+      for (const { candidate, clipIndex, rendered } of renderResults) {
         if (!rendered.ok) {
           logger({
             event: "clip_render_failed",
@@ -321,7 +325,6 @@ export function createProcessingService(input: {
             logger
           );
         }
-
         logger({
           event: "clip_render_completed",
           sermonId: clipsSelected.value.sermon.id,
@@ -330,8 +333,7 @@ export function createProcessingService(input: {
           clipTotal,
           cropVideoUrl: rendered.value.cropVideoUrl
         });
-
-        renderedClips.push({ candidate: parsedCandidate, renderedClip: rendered.value });
+        renderedClips.push({ candidate, renderedClip: rendered.value });
       }
 
       logger({
