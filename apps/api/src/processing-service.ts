@@ -78,7 +78,6 @@ export type ProcessingService = {
 export function createProcessingService(input: {
   readonly store: JobStore;
   readonly dataDir: string;
-  readonly publicBaseUrl: string;
   readonly now?: () => Date;
   readonly sourceMedia?: SourceMediaClient;
   readonly transcription?: TranscriptionProvider;
@@ -119,8 +118,7 @@ export function createProcessingService(input: {
     createFfmpegRenderer({
       commandRunner,
       storage: createLocalStorageClient({
-        assetRoot: `${input.dataDir}/public`,
-        publicBaseUrl: input.publicBaseUrl
+        assetRoot: `${input.dataDir}/public`
       }),
       workspace: createLocalRenderWorkspace({ workDir: `${input.dataDir}/work` }),
       logger

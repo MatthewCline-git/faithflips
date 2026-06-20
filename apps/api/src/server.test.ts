@@ -19,7 +19,6 @@ describe("POST /sermons", () => {
     const processing = createProcessingService({
       store: createMemoryJobStore(),
       dataDir: "/tmp/faithflips-test",
-      publicBaseUrl: "http://127.0.0.1:4001",
       sourceMedia: createTestSourceMedia(),
       transcription: createTestTranscription(),
       clipSelection: createTestClipSelection(),
@@ -61,7 +60,6 @@ describe("POST /sermons", () => {
     const processing = createProcessingService({
       store: createMemoryJobStore(),
       dataDir: "/tmp/faithflips-test",
-      publicBaseUrl: "http://127.0.0.1:4001",
       sourceMedia: createTestSourceMedia(),
       transcription: createTestTranscription(),
       clipSelection: createTestClipSelection(() => {
@@ -129,8 +127,7 @@ describe("POST /sermons", () => {
       processing: createProcessingService({
         store: createMemoryJobStore(),
         dataDir: "/tmp/faithflips-test",
-        publicBaseUrl: "http://127.0.0.1:4001",
-        sourceMedia: createTestSourceMedia(),
+          sourceMedia: createTestSourceMedia(),
         transcription: createTestTranscription(),
         clipSelection: createTestClipSelection(),
         renderer: createTestRenderer(),
@@ -151,8 +148,7 @@ describe("POST /sermons", () => {
       processing: createProcessingService({
         store: createMemoryJobStore(),
         dataDir: "/tmp/faithflips-test",
-        publicBaseUrl: "http://127.0.0.1:4001",
-        sourceMedia: createTestSourceMedia(),
+          sourceMedia: createTestSourceMedia(),
         transcription: createTestTranscription(),
         clipSelection: createTestClipSelection(),
         renderer: createTestRenderer(),
@@ -170,7 +166,6 @@ describe("POST /sermons", () => {
     const processing = createProcessingService({
       store: createMemoryJobStore(),
       dataDir: "/tmp/faithflips-test",
-      publicBaseUrl: "http://127.0.0.1:4001",
       sourceMedia: createTestSourceMedia(),
       transcription: createTestTranscription(),
       clipSelection: createTestClipSelection(),
@@ -262,7 +257,7 @@ function createTestTranscription(): TranscriptionProvider {
 }
 
 function createTestRenderer(): VideoRenderer {
-  const base = "http://127.0.0.1:4001/assets/renders";
+  const base = "/assets/renders";
   return {
     render(input) {
       return Promise.resolve(

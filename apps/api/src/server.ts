@@ -41,14 +41,12 @@ const createRunBodySchema = z.object({
 export function createServer(input: {
   readonly store: JobStore;
   readonly dataDir: string;
-  readonly publicBaseUrl: string;
   readonly webDistDir?: string;
   readonly logger?: (event: Record<string, unknown>) => void;
 }) {
   const processing = createProcessingService({
     store: input.store,
     dataDir: input.dataDir,
-    publicBaseUrl: input.publicBaseUrl,
     ...(input.logger ? { logger: input.logger } : {})
   });
 

@@ -10,8 +10,6 @@ loadEnvFile(resolve(process.cwd(), "../../.env"));
 const port = Number.parseInt(process.env["PORT"] ?? "4000", 10);
 const dataDir = process.env["FAITHFLIPS_DATA_DIR"] ?? resolve(process.cwd(), ".faithflips-data");
 const jobStorePath = process.env["FAITHFLIPS_JOB_STORE_PATH"] ?? resolve(dataDir, "jobs.json");
-const publicBaseUrl =
-  process.env["FAITHFLIPS_PUBLIC_BASE_URL"] ?? `http://127.0.0.1:${String(port)}`;
 const srcDir = fileURLToPath(new URL(".", import.meta.url));
 const webDistDir =
   process.env["FAITHFLIPS_WEB_DIST_DIR"] ?? resolve(srcDir, "../../../apps/web/dist");
@@ -20,13 +18,12 @@ const logger = createLogger();
 const server = createServer({
   store: createFileJobStore({ filePath: jobStorePath }),
   dataDir,
-  publicBaseUrl,
   webDistDir,
   logger
 });
 
 server.listen(port, () => {
-  logger({ event: "api_started", port, jobStorePath, publicBaseUrl });
+  logger({ event: "api_started", port, jobStorePath });
 });
 
 function loadEnvFile(path: string): void {

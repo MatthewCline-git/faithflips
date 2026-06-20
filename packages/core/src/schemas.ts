@@ -116,10 +116,10 @@ export const renderedClipSchema = z.object({
   aspectRatio: z.literal("9:16"),
   // Both full-length variants are rendered up front so the editor can preview either
   // instantly. finalVideoUrl is the stitched result, set on download for mixed plans.
-  cropVideoUrl: z.url(),
-  blurVideoUrl: z.url(),
-  finalVideoUrl: z.url().optional(),
-  thumbnailUrl: z.url(),
+  cropVideoUrl: z.string().min(1),
+  blurVideoUrl: z.string().min(1),
+  finalVideoUrl: z.string().min(1).optional(),
+  thumbnailUrl: z.string().min(1),
   subtitleStyle: z.string().min(1),
   renderStatus: z.enum(["completed", "failed"]),
   // Both crop and blur are rendered ±bufferSeconds around the clip so the editor can scrub

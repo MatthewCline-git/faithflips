@@ -171,10 +171,7 @@ export function createNodeCommandRunner(): CommandRunner {
 
 export function createLocalStorageClient(input: {
   readonly assetRoot: string;
-  readonly publicBaseUrl: string;
 }): StorageClient {
-  const publicBaseUrl = input.publicBaseUrl.replace(/\/$/, "");
-
   return {
     async putObject(objectInput) {
       try {
@@ -183,7 +180,7 @@ export function createLocalStorageClient(input: {
         await copyFile(objectInput.filePath, outputPath);
         return ok({
           key: objectInput.key,
-          url: `${publicBaseUrl}/assets/${encodePathKey(objectInput.key)}`,
+          url: `/assets/${encodePathKey(objectInput.key)}`,
           contentType: objectInput.contentType
         });
       } catch (error) {
