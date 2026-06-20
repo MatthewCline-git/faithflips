@@ -52,9 +52,39 @@ export function createServer(input: {
     ...(input.logger ? { logger: input.logger } : {})
   });
 
+  void recoverInterruptedJobs(input.store, processing, input.logger);
+
   return createHttpServer((request, response) => {
     void handleRequest(request, response, processing, join(input.dataDir, "public"), input.webDistDir);
   });
+}
+
+async function recoverInterruptedJobs(
+  store: JobStore,
+  processing: ProcessingService,
+  logger?: (event: Record<string, unknown>) => void
+): Promise<void> {
+  const jobs = await store.list();
+  for (const record of jobs) {
+    if (record.job.status === "completed" || record.job.status === "failed") {
+      continue;
+    }
+    logger?.({
+      event: "job_recovery_started",
+      jobId: record.job.id,
+      previousStatus: record.job.status
+    });
+    await store.update({
+      ...record,
+      job: {
+        ...record.job,
+        status: "queued",
+        updatedAt: new Date().toISOString(),
+        failureReason: undefined
+      }
+    });
+    void processing.processJob(record.job.id);
+  }
 }
 
 export async function createApiResponse(input: {
