@@ -26,12 +26,12 @@ import { createFfmpegRenderer, type VideoRenderer } from "@faithflips/rendering"
 import { z } from "zod";
 import type { JobStore, PersistedJobRecord } from "./job-store.js";
 import {
-  createLocalDevSourceMediaClient,
-  createLocalRenderWorkspace,
-  createLocalStorageClient,
+  createSourceMediaClient,
+  createRenderWorkspace,
+  createStorageClient,
   createNodeCommandRunner,
   createWhisperTranscriptionProvider
-} from "./local-dev-runtime.js";
+} from "./runtime.js";
 import { createOpenAiClipSelectionProvider } from "./openai-clip-selector.js";
 
 export type ProcessingServiceError =
@@ -89,7 +89,7 @@ export function createProcessingService(input: {
   const commandRunner = createNodeCommandRunner();
   const sourceMedia =
     input.sourceMedia ??
-    createLocalDevSourceMediaClient({
+    createSourceMediaClient({
       dataDir: input.dataDir,
       now,
       logger
@@ -113,10 +113,10 @@ export function createProcessingService(input: {
     input.renderer ??
     createFfmpegRenderer({
       commandRunner,
-      storage: createLocalStorageClient({
+      storage: createStorageClient({
         assetRoot: `${input.dataDir}/public`
       }),
-      workspace: createLocalRenderWorkspace({ workDir: `${input.dataDir}/work` }),
+      workspace: createRenderWorkspace({ workDir: `${input.dataDir}/work` }),
       logger
     });
   const ingestion = createTranscriptIngestionWorkflow({

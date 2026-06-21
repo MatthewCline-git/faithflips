@@ -21,7 +21,7 @@ import type {
   WorkspaceError
 } from "@faithflips/rendering";
 
-export function createLocalDevSourceMediaClient(input: {
+export function createSourceMediaClient(input: {
   readonly dataDir: string;
   readonly now: () => Date;
   readonly logger: (event: Record<string, unknown>) => void;
@@ -169,7 +169,7 @@ export function createNodeCommandRunner(): CommandRunner {
   };
 }
 
-export function createLocalStorageClient(input: {
+export function createStorageClient(input: {
   readonly assetRoot: string;
 }): StorageClient {
   return {
@@ -194,7 +194,7 @@ export function createLocalStorageClient(input: {
   };
 }
 
-export function createLocalRenderWorkspace(input: { readonly workDir: string }): RenderWorkspace {
+export function createRenderWorkspace(input: { readonly workDir: string }): RenderWorkspace {
   // Ensure the work directory exists so ffmpeg can write rendered outputs even on a
   // fresh/cleared data volume (createPath returns a path inside it without creating it).
   mkdirSync(input.workDir, { recursive: true });
