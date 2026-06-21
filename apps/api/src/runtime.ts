@@ -352,7 +352,7 @@ async function downloadYouTubeMedia(input: {
     "--merge-output-format",
     "mp4",
     "--extractor-args",
-    "youtube:player_client=ios",
+    "youtube:player_client=tv_embed",
     "-o",
     outputTemplate,
     input.sourceUrl
@@ -409,7 +409,7 @@ async function downloadYouTubeCaptions(input: {
     "vtt",
     "--no-playlist",
     "--extractor-args",
-    "youtube:player_client=ios",
+    "youtube:player_client=tv_embed",
     "-o",
     join(captionsDir, `${input.videoId}.%(ext)s`),
     input.sourceUrl
